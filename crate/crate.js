@@ -91,6 +91,7 @@ const DRAG_THRESHOLD = 50; // pixels to flip a record (for mousewheel only)
 let audio = new Audio();
 let currentPlayingTrackId = null;
 let currentPlayingTrackItem = null;
+let siteAudioEnabled = true;
 
 // Initialize Application
 document.addEventListener('DOMContentLoaded', () => {
@@ -104,6 +105,14 @@ window.addEventListener('seph-agent-state', event => {
   if (nextState) {
     agentVisualState = nextState;
   }
+});
+
+window.addEventListener('seph-agent-sound', event => {
+  const enabled = event.detail?.enabled;
+  if (typeof enabled !== 'boolean') return;
+  siteAudioEnabled = enabled;
+  audio.muted = !siteAudioEnabled;
+  document.documentElement.dataset.siteAudio = siteAudioEnabled ? 'on' : 'off';
 });
 
 window.addEventListener('seph-agent-focus', event => {
@@ -393,6 +402,7 @@ function publishCrateApi() {
       item_count: masterCatalog.length,
       visible_item_count: catalog.length,
       cart_count: readLocalCrateItems().length,
+      site_audio_enabled: siteAudioEnabled,
       webgl: Boolean(renderer),
       webmcp_candidate: Boolean(document.modelContext),
       purchase_automation: false
@@ -2587,8 +2597,17 @@ function animate() {
 
   const agentMotionActive = ['loading', 'active', 'busy', 'standby', 'returning'].includes(agentVisualState);
   const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  const now = performance.now();
+  const agentOperation = document.documentElement.dataset.agentOperation || '';
   const agentFloatOffset = agentMotionActive && !reducedMotion
-    ? Math.sin(performance.now() * 0.00135) * 0.006
+    ? Math.sin(now * 0.00135) * 0.006
+    : 0;
+  const agentBrowseOffset = agentMotionActive && !reducedMotion
+    ? agentOperation === 'digging'
+      ? Math.sin(now * 0.0016) * 0.018
+      : ['browsing', 'searching'].includes(agentOperation)
+        ? Math.sin(now * 0.0011) * 0.012
+        : 0
     : 0;
 
   // Agent Mode is deliberately felt before it becomes theatrical: a nearly
@@ -2605,7 +2624,10 @@ function animate() {
 
   // When details panel is open on desktop, shift camera slightly to the right (0.08) to push crate to the left, clearing space for the right sidebar
   const baseTargetCamX = isSelected && window.innerWidth >= 1024 ? 0.08 : 0;
-  targetCamX = baseTargetCamX + globalCamXOffset;
+  // During digging/browsing the agent makes a tiny lateral pass through the
+  // crate. It is deliberately sub-pixel in spirit: directional presence, not
+  // a camera effect that competes with the records.
+  targetCamX = baseTargetCamX + globalCamXOffset + agentBrowseOffset;
   currentCamX += (targetCamX - currentCamX) * 0.08;
 
   // Move lights along with the camera focus to prevent washing out/exposure shifts

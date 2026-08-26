@@ -96,18 +96,19 @@ input, textarea, [contenteditable="true"], .postit-code, .postit-text, .postit-p
   /* Stay above the detail drawer so agent state remains visible while a
      tool opens or inspects a record. */
   z-index: 1200;
-  width: min(224px, calc(100vw - 36px));
-  min-height: 0;
-  padding: 17px 18px 15px;
+  width: min(196px, calc(100vw - 36px));
+  min-height: 156px;
+  padding: 28px 23px 22px;
   border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 18px;
+  border-radius: 50%;
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.13), rgba(5, 5, 5, 0.58));
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.16), 0 0 0 1px rgba(255, 255, 255, 0.025);
-  backdrop-filter: blur(18px) saturate(115%);
-  -webkit-backdrop-filter: blur(18px) saturate(115%);
+    radial-gradient(circle at 50% 26%, rgba(255, 255, 255, 0.18), transparent 34%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.14), rgba(5, 5, 5, 0.54));
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.16), 0 0 0 1px rgba(255, 255, 255, 0.025);
+  backdrop-filter: blur(22px) saturate(125%);
+  -webkit-backdrop-filter: blur(22px) saturate(125%);
   opacity: 0;
-  transform: translate3d(-16px, -50%, 0) scale(0.96);
+  transform: translate3d(-18px, -50%, 0) scale(0.88);
   pointer-events: none !important;
   isolation: isolate;
   overflow: visible;
@@ -118,25 +119,25 @@ input, textarea, [contenteditable="true"], .postit-code, .postit-text, .postit-p
 .agent-mode-hud::before {
   content: '';
   position: absolute;
-  inset: -24px -30px;
+  inset: -34px -40px;
   z-index: -2;
   border-radius: 50%;
-  background: radial-gradient(ellipse at center, rgba(138, 203, 146, 0.12), transparent 68%);
-  filter: blur(18px);
+  background: radial-gradient(circle at center, rgba(138, 203, 146, 0.14), transparent 67%);
+  filter: blur(22px);
   opacity: 0;
-  transform: scale(0.82);
+  transform: scale(0.72);
   transition: opacity 0.8s ease, transform 1s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .agent-mode-hud::after {
   content: '';
   position: absolute;
-  inset: -6px;
+  inset: -8px;
   z-index: -1;
   border: 1px solid rgba(138, 203, 146, 0.16);
-  border-radius: 22px;
+  border-radius: 50%;
   opacity: 0.35;
-  transform: scale(0.98);
+  transform: scale(0.96);
   transition: opacity 0.6s ease, transform 0.7s ease;
   pointer-events: none;
 }
@@ -279,15 +280,15 @@ html[data-agent-operation="returning"] .agent-eye {
   margin-top: 6px;
   color: var(--agent-muted);
   line-height: 1.4;
+  text-transform: uppercase;
 }
 
 .agent-mode-footer {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
   min-height: 28px;
-  margin-top: 10px;
+  margin-top: 14px;
 }
 
 .agent-mode-operation {
@@ -304,7 +305,7 @@ html[data-agent-operation="returning"] .agent-eye {
   height: 28px;
   flex: 0 0 28px;
   align-items: center;
-  margin: 0;
+  margin: 0 auto;
   padding: 0;
   border: 1px solid rgba(255, 255, 255, 0.22);
   background: transparent;
@@ -356,6 +357,257 @@ html[data-agent-sound="on"] .agent-sound-wave {
 
 html[data-agent-sound="off"] .agent-sound-mute {
   display: block;
+}
+
+/* The orb is the one theatrical signature of Agent Mode: a brief fullscreen
+   handoff, then a quiet glass presence around the crate. */
+.agent-mode-intro {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at center, rgba(138, 203, 146, 0.1), transparent 34%),
+    rgba(5, 5, 5, 0.74);
+  backdrop-filter: blur(10px) saturate(125%);
+  -webkit-backdrop-filter: blur(10px) saturate(125%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.agent-mode-intro[hidden] {
+  display: none !important;
+}
+
+html[data-agent-intro="active"] .agent-mode-intro {
+  display: grid;
+  animation: agentIntroPresence 1.32s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.agent-intro-field {
+  position: absolute;
+  width: min(72vw, 760px);
+  aspect-ratio: 1;
+  border: 1px solid rgba(138, 203, 146, 0.18);
+  border-radius: 50%;
+  box-shadow: 0 0 80px rgba(138, 203, 146, 0.08), inset 0 0 60px rgba(138, 203, 146, 0.035);
+  opacity: 0;
+  transform: scale(0.52) rotate(-18deg);
+  animation: agentIntroField 1.32s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.agent-intro-field::before,
+.agent-intro-field::after {
+  content: '';
+  position: absolute;
+  inset: 9%;
+  border: 1px solid rgba(138, 203, 146, 0.1);
+  border-radius: 50%;
+}
+
+.agent-intro-field::after {
+  inset: 21%;
+  border-color: rgba(138, 203, 146, 0.08);
+}
+
+.agent-intro-orb {
+  position: relative;
+  display: flex;
+  width: min(246px, calc(100vw - 48px));
+  min-height: 184px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 30px 24px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 22%, rgba(255, 255, 255, 0.19), transparent 35%),
+    rgba(13, 13, 16, 0.4);
+  box-shadow: 0 0 0 1px rgba(138, 203, 146, 0.1), 0 0 64px rgba(138, 203, 146, 0.13), 0 20px 70px rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(24px) saturate(135%);
+  -webkit-backdrop-filter: blur(24px) saturate(135%);
+  text-align: center;
+  transform: scale(0.6);
+  animation: agentIntroOrb 1.32s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.agent-intro-orb::before {
+  content: '';
+  position: absolute;
+  inset: -9px;
+  border: 1px solid rgba(138, 203, 146, 0.2);
+  border-radius: 50%;
+  opacity: 0.7;
+}
+
+.agent-intro-sigil {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  height: 8px;
+}
+
+.agent-intro-sigil span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--agent-color, #8acb92);
+  box-shadow: 0 0 12px var(--agent-color, #8acb92);
+}
+
+.agent-intro-orb strong {
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: clamp(0.72rem, 2vw, 0.92rem);
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  line-height: 1.35;
+  text-transform: uppercase;
+}
+
+.agent-intro-orb > span:last-child {
+  color: var(--agent-color, #8acb92);
+  font-family: var(--font-mono);
+  font-size: 0.5rem;
+  letter-spacing: 0.12em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+@keyframes agentIntroPresence {
+  0% { opacity: 0; }
+  12% { opacity: 1; }
+  72% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes agentIntroField {
+  0% { opacity: 0; transform: scale(0.52) rotate(-18deg); }
+  20% { opacity: 0.85; }
+  72% { opacity: 0.5; transform: scale(1) rotate(12deg); }
+  100% { opacity: 0; transform: scale(1.12) rotate(24deg); }
+}
+
+@keyframes agentIntroOrb {
+  0% { opacity: 0; transform: scale(0.6); }
+  18% { opacity: 1; transform: scale(1.04); }
+  32% { transform: scale(0.98); }
+  72% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.06); }
+}
+
+/* A perimeter-only gaze: it makes digging legible without painting over the
+   record artwork. The reticle moves around the outside of the crate while
+   the existing WebGL scene stays untouched. */
+.agent-gaze {
+  --agent-gaze-color: rgba(138, 203, 146, 0.6);
+  position: absolute;
+  inset: 8% 19% 2%;
+  z-index: 4;
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(0.96);
+  transition: opacity 0.7s ease, transform 0.9s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.agent-gaze::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgba(138, 203, 146, 0.12);
+  border-radius: 50%;
+  opacity: 0.68;
+}
+
+.agent-gaze-scan {
+  position: absolute;
+  inset: -1px;
+  border: 1px solid transparent;
+  border-top-color: var(--agent-gaze-color);
+  border-right-color: rgba(138, 203, 146, 0.14);
+  border-radius: 50%;
+  filter: drop-shadow(0 0 6px rgba(138, 203, 146, 0.28));
+  opacity: 0.8;
+}
+
+.agent-gaze-reticle {
+  position: absolute;
+  top: 6%;
+  left: 50%;
+  width: 9px;
+  height: 9px;
+  border: 1px solid var(--agent-gaze-color);
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px rgba(138, 203, 146, 0.06), 0 0 12px rgba(138, 203, 146, 0.38);
+  transform: translate(-50%, -50%);
+}
+
+html[data-agent-mode="loading"] .agent-gaze,
+html[data-agent-mode="active"] .agent-gaze,
+html[data-agent-mode="busy"] .agent-gaze,
+html[data-agent-mode="standby"] .agent-gaze,
+html[data-agent-mode="returning"] .agent-gaze {
+  opacity: 0.58;
+  transform: scale(1);
+}
+
+html[data-agent-operation="digging"] .agent-gaze,
+html[data-agent-operation="browsing"] .agent-gaze,
+html[data-agent-operation="searching"] .agent-gaze {
+  opacity: 0.9;
+}
+
+html[data-agent-operation="digging"] .agent-gaze-scan {
+  animation: agentGazeOrbit 1.5s linear infinite;
+}
+
+html[data-agent-operation="browsing"] .agent-gaze-scan,
+html[data-agent-operation="searching"] .agent-gaze-scan {
+  animation: agentGazeOrbitReverse 2.2s linear infinite;
+}
+
+html[data-agent-operation="digging"] .agent-gaze-reticle {
+  animation: agentGazeDig 1.5s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+html[data-agent-operation="browsing"] .agent-gaze-reticle,
+html[data-agent-operation="searching"] .agent-gaze-reticle {
+  animation: agentGazeBrowse 2.2s ease-in-out infinite;
+}
+
+html[data-agent-operation="focusing"] .agent-gaze-reticle,
+html[data-agent-operation="inspecting"] .agent-gaze-reticle {
+  animation: agentGazeFocus 1.1s ease-in-out infinite;
+}
+
+@keyframes agentGazeOrbit {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes agentGazeOrbitReverse {
+  to { transform: rotate(-360deg); }
+}
+
+@keyframes agentGazeDig {
+  0%, 100% { top: 7%; left: 48%; }
+  25% { top: 22%; left: 91%; }
+  50% { top: 93%; left: 72%; }
+  75% { top: 77%; left: 8%; }
+}
+
+@keyframes agentGazeBrowse {
+  0%, 100% { top: 18%; left: 12%; }
+  50% { top: 18%; left: 88%; }
+}
+
+@keyframes agentGazeFocus {
+  0%, 100% { transform: translate(-50%, -50%) scale(0.8); opacity: 0.45; }
+  50% { transform: translate(-50%, -50%) scale(1.35); opacity: 1; }
 }
 
 .agent-debug-trigger,
@@ -1462,7 +1714,7 @@ html[data-agent-mode="returning"] #canvas-container {
     top: 82px;
     left: 50%;
     right: auto;
-    width: min(224px, calc(100vw - 32px));
+    width: min(196px, calc(100vw - 32px));
     min-width: 0;
     max-width: calc(100vw - 32px);
     transform: translate3d(-50%, -12px, 0) scale(0.94);
@@ -1519,8 +1771,12 @@ html[data-agent-mode="returning"] #canvas-container {
   .agent-mode-hud,
   .agent-mode-hud::before,
   .agent-mode-hud::after,
+  .agent-mode-intro,
+  .agent-intro-field,
+  .agent-intro-orb,
   #canvas-container::before,
-  #canvas-container::after {
+  #canvas-container::after,
+  .agent-gaze {
     transition-duration: 0.01ms;
   }
 
@@ -1530,6 +1786,11 @@ html[data-agent-mode="returning"] #canvas-container {
   html[data-agent-mode="busy"] .agent-mode-sigil,
   html[data-agent-mode="active"] .agent-mode-sigil,
   html[data-agent-mode="standby"] .agent-mode-sigil,
+  .agent-mode-intro,
+  .agent-intro-field,
+  .agent-intro-orb,
+  .agent-gaze-scan,
+  .agent-gaze-reticle,
   #canvas-container {
     animation: none !important;
   }
@@ -3138,6 +3399,55 @@ html[data-agent-mode="returning"] #canvas-container {
 
   .agent-mode-hud::after {
     border-color: rgba(23, 107, 42, 0.18);
+  }
+
+  .agent-mode-intro {
+    --agent-color: #176b2a;
+    background:
+      radial-gradient(circle at center, rgba(23, 107, 42, 0.08), transparent 34%),
+      rgba(245, 245, 247, 0.78);
+  }
+
+  .agent-intro-field {
+    border-color: rgba(23, 107, 42, 0.18);
+    box-shadow: 0 0 80px rgba(23, 107, 42, 0.08), inset 0 0 60px rgba(23, 107, 42, 0.035);
+  }
+
+  .agent-intro-field::before {
+    border-color: rgba(23, 107, 42, 0.1);
+  }
+
+  .agent-intro-field::after {
+    border-color: rgba(23, 107, 42, 0.08);
+  }
+
+  .agent-intro-orb {
+    border-color: rgba(0, 0, 0, 0.14);
+    background:
+      radial-gradient(circle at 50% 22%, rgba(255, 255, 255, 0.86), transparent 35%),
+      rgba(255, 255, 255, 0.66);
+    box-shadow: 0 0 0 1px rgba(23, 107, 42, 0.08), 0 0 64px rgba(23, 107, 42, 0.1), 0 20px 70px rgba(0, 0, 0, 0.12);
+  }
+
+  .agent-intro-orb::before {
+    border-color: rgba(23, 107, 42, 0.18);
+  }
+
+  .agent-gaze {
+    --agent-gaze-color: rgba(23, 107, 42, 0.62);
+  }
+
+  .agent-gaze::before {
+    border-color: rgba(23, 107, 42, 0.12);
+  }
+
+  .agent-gaze-scan {
+    border-right-color: rgba(23, 107, 42, 0.14);
+    filter: drop-shadow(0 0 6px rgba(23, 107, 42, 0.24));
+  }
+
+  .agent-gaze-reticle {
+    box-shadow: 0 0 0 3px rgba(23, 107, 42, 0.05), 0 0 12px rgba(23, 107, 42, 0.3);
   }
 
   .agent-sound-toggle {

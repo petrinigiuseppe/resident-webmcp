@@ -15,12 +15,14 @@ const MAX_TOOL_OUTPUT_RECORDS = 12;
 const ACTIVE_STATES = new Set(['loading', 'active', 'busy', 'standby']);
 const DEBUG_QUERY_KEYS = ['webmcp_debug', 'agent_debug'];
 const SESSION_HANDSHAKE_MS = 280;
+const AGENT_INTRO_MS = 1320;
 const AGENT_OPERATION_LABELS = {
   human: 'Human control',
   loading: 'Connecting',
   listening: 'Listening',
   thinking: 'Thinking',
   orienting: 'Orienting',
+  browsing: 'Browsing',
   searching: 'Searching',
   digging: 'Digging',
   focusing: 'Moving picks',
@@ -43,15 +45,21 @@ let returnTransitionId = 0;
 let agentSoundEnabled = false;
 let agentAudioContext = null;
 let debugActionPromise = null;
+let agentIntroTimer = null;
 
 function dispatch(name, detail = {}) {
   window.dispatchEvent(new CustomEvent(name, { detail }));
+}
+
+function toHudText(value) {
+  return String(value ?? '').replace(/\s+/g, ' ').trim().toUpperCase();
 }
 
 function inferAgentOperation(state, text = '') {
   const normalized = String(text).toLowerCase();
   if (state === 'busy') {
     if (normalized.includes('dig') || normalized.includes('song dna')) return 'digging';
+    if (normalized.includes('brows') || normalized.includes('explor')) return 'browsing';
     if (normalized.includes('search')) return 'searching';
     if (normalized.includes('inspect')) return 'inspecting';
     if (normalized.includes('orient')) return 'orienting';
@@ -142,7 +150,26 @@ function setSoundEnabled(enabled) {
   }
   updateSoundControl();
   if (agentSoundEnabled) playAgentCue('active', 'listening');
-  dispatch('seph-agent-sound', { enabled: agentSoundEnabled });
+  dispatch('seph-agent-sound', {
+    enabled: agentSoundEnabled,
+    scope: 'site',
+    mode: 'agent'
+  });
+}
+
+function restoreHumanAudioAfterExit() {
+  agentSoundEnabled = false;
+  if (agentAudioContext && agentAudioContext.state !== 'closed') {
+    agentAudioContext.suspend().catch(() => {});
+  }
+  updateSoundControl();
+  // Hand the site's audio policy back to the human surface. Agent cues stop;
+  // any human preview player is unmuted for the next explicit interaction.
+  dispatch('seph-agent-sound', {
+    enabled: true,
+    scope: 'site',
+    mode: 'human'
+  });
 }
 
 function installAgentSoundControl() {
@@ -155,6 +182,28 @@ function installAgentSoundControl() {
     setSoundEnabled(!agentSoundEnabled);
   });
   updateSoundControl();
+}
+
+function clearAgentIntro() {
+  if (agentIntroTimer) {
+    window.clearTimeout(agentIntroTimer);
+    agentIntroTimer = null;
+  }
+  const intro = document.getElementById('agent-mode-intro');
+  if (intro) intro.hidden = true;
+  delete document.documentElement.dataset.agentIntro;
+}
+
+function triggerAgentIntro() {
+  const intro = document.getElementById('agent-mode-intro');
+  if (!intro) return;
+  if (agentIntroTimer) window.clearTimeout(agentIntroTimer);
+  intro.hidden = false;
+  delete document.documentElement.dataset.agentIntro;
+  requestAnimationFrame(() => {
+    document.documentElement.dataset.agentIntro = 'active';
+  });
+  agentIntroTimer = window.setTimeout(clearAgentIntro, AGENT_INTRO_MS);
 }
 
 function setAgentState(state, detail = {}) {
@@ -172,24 +221,26 @@ function setAgentState(state, detail = {}) {
   const operationEl = document.getElementById('agent-mode-operation');
   const live = document.getElementById('agent-mode-live');
   const labels = {
-    human: 'Human Mode',
-    loading: 'Agent Mode Loading…',
-    active: 'Agent Mode Active',
-    busy: 'Agent Mode Thinking…',
-    standby: 'Agent Mode Listening',
-    override: 'Human Mode Override',
-    returning: 'Returning to Human Mode'
+    human: 'HUMAN MODE',
+    loading: 'AGENT MODE',
+    active: 'AGENT MODE',
+    busy: 'AGENT MODE',
+    standby: 'AGENT MODE',
+    override: 'HUMAN MODE',
+    returning: 'AGENT MODE'
   };
   const details = {
-    human: 'Ready for your selection',
-    loading: 'Connecting to the crate',
-    active: 'Ready to curate',
-    busy: detail.text || 'Reading the crate',
-    standby: 'Waiting for direction',
-    override: 'Human input has priority',
-    returning: 'Returning control'
+    human: 'READY FOR YOUR SELECTION',
+    loading: 'CONNECTING TO THE CRATE',
+    active: 'READY TO CURATE',
+    busy: detail.text || 'READING THE CRATE',
+    standby: 'WAITING FOR DIRECTION',
+    override: 'HUMAN INPUT HAS PRIORITY',
+    returning: 'RETURNING CONTROL'
   };
   const operationLabel = AGENT_OPERATION_LABELS[agentOperation] || AGENT_OPERATION_LABELS.thinking;
+  const hudDetail = toHudText(detail.text || details[state] || '');
+  const hudOperation = toHudText(operationLabel);
 
   if (hud) {
     hud.dataset.state = state;
@@ -197,10 +248,12 @@ function setAgentState(state, detail = {}) {
     hud.setAttribute('aria-busy', String(state === 'loading' || state === 'busy'));
   }
   if (label) label.textContent = labels[state] || labels.human;
-  if (detailEl) detailEl.textContent = detail.text || details[state] || '';
-  if (operationEl) operationEl.textContent = operationLabel;
-  if (live && state !== 'human') live.textContent = `${labels[state] || ''} ${operationLabel}`.trim();
+  if (detailEl) detailEl.textContent = hudDetail;
+  if (operationEl) operationEl.textContent = hudOperation;
+  if (live && state !== 'human') live.textContent = `${labels[state] || ''} ${hudOperation}`.trim();
   updateSoundControl();
+
+  if (state === 'human') clearAgentIntro();
 
   dispatch('seph-agent-state', { state, operation: agentOperation, ...detail });
 
@@ -283,6 +336,7 @@ async function withAgentActivity(text, work) {
 async function startCuratorSession(api, intent = '') {
   sessionStartedAt = new Date().toISOString();
   setAgentState('loading', { text: 'Connecting to the crate', operation: 'loading' });
+  triggerAgentIntro();
   const transitionId = returnTransitionId;
 
   // Keep the first state on screen for one short paint window. This gives the
@@ -310,6 +364,7 @@ async function returnToHumanMode(api) {
     text: 'Returning control',
     operation: 'returning'
   });
+  restoreHumanAudioAfterExit();
   await nextPaint();
   await wait(RETURN_FOCUS_CLEAR_MS);
   if (transitionId !== returnTransitionId) {
@@ -360,6 +415,7 @@ async function runDebugAction(api, action) {
   await ensureDebugSession(api);
 
   if (action === 'sequence') {
+    await withAgentActivity('Browsing the crate', () => wait(620));
     await withAgentActivity('Thinking about the request', () => wait(760));
     return withAgentActivity('Digging through Song DNA', async () => {
       const result = scoreCatalog(getCatalog(), 'warm house groove for a late night drive', { maxResults: 5 });
@@ -392,6 +448,10 @@ async function runDebugAction(api, action) {
       api.setSearchQuery(previousQuery);
       return { ok: true, debug: true, query: 'house', restored_query: previousQuery };
     });
+  }
+
+  if (action === 'browsing') {
+    return withAgentActivity('Browsing the crate', () => wait(900));
   }
 
   if (action === 'focus') {
@@ -596,7 +656,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
     },
     annotations: uiMutation,
     async execute(input = {}) {
-      return withAgentActivity('Searching the crate', async () => {
+      return withAgentActivity('Browsing the crate', async () => {
         const query = trimText(input.query, 200);
         if (!query) return resultError('INVALID_QUERY', 'A non-empty catalog query is required.');
         const results = searchCatalog(query, input.max_results);
