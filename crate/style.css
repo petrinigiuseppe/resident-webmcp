@@ -15,6 +15,7 @@
   --accent-glow: rgba(3, 255, 0, 0.2);
   --accent-hover: #1eff1a;
   --panel-width: 440px;
+  --crate-surface-radius: 20px;
   --description-fade-gradient: linear-gradient(to bottom, rgba(13, 13, 16, 0), rgba(13, 13, 16, 0.95));
   --transition-smooth: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
@@ -623,6 +624,11 @@ html[data-agent-intro="active"] .agent-mode-intro {
   transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease, opacity 0.2s ease;
 }
 
+.agent-debug-action[data-agent-debug-action="add"],
+.agent-debug-action[data-agent-debug-action="remove"] {
+  border-radius: var(--crate-surface-radius);
+}
+
 .agent-debug-action:hover,
 .agent-debug-action:focus-visible {
   border-color: var(--agent-color, #8acb92);
@@ -904,10 +910,15 @@ html[data-agent-mode="returning"] #canvas-container {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
+  width: 100%;
+  text-align: center;
 }
 
 .mobile-agent-hint strong {
   display: block;
+  width: 100%;
+  text-align: center;
   text-transform: uppercase;
 }
 
@@ -1307,7 +1318,7 @@ html[data-agent-mode="returning"] .mobile-agent-hint {
   align-items: center;
   justify-content: space-between;
   padding: 12px 14px;
-  border-radius: 8px;
+  border-radius: var(--crate-surface-radius);
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(255, 255, 255, 0.02);
   margin-bottom: 8px;
@@ -1564,7 +1575,7 @@ html[data-agent-mode="returning"] .mobile-agent-hint {
   font-weight: 600;
   font-size: 0.85rem;
   padding: 16px 24px;
-  border-radius: 8px;
+  border-radius: var(--crate-surface-radius);
   transition: var(--transition-smooth);
   box-shadow: 0 4px 15px rgba(3, 255, 0, 0.15);
   text-transform: uppercase;
@@ -1596,7 +1607,7 @@ html[data-agent-mode="returning"] .mobile-agent-hint {
     height: 70%;
     border-left: none;
     border-top: 1px solid var(--panel-border);
-    border-radius: 20px 20px 0 0;
+    border-radius: var(--crate-surface-radius) var(--crate-surface-radius) 0 0;
     transform: translateY(100%);
     box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.6);
     transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
@@ -1741,13 +1752,16 @@ html[data-agent-mode="returning"] .mobile-agent-hint {
     left: 16px;
     bottom: 88px;
     width: min(252px, calc(100vw - 32px));
+    max-height: min(414px, calc(100dvh - 132px));
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 }
 
 /* A desktop browser with a side panel can be narrower than 1024px. Keep the
    desktop orb in that case; reserve the compact mode surface for real phone
    widths so opening ChatGPT does not make the crate look like a mobile site. */
-@media (min-width: 769px) and (max-width: 1023px) {
+@media (min-width: 769px) and (max-width: 1023px) and (hover: hover) and (pointer: fine) {
   .agent-mode-hud {
     top: 50%;
     left: clamp(18px, calc(50% - 560px), 20vw);

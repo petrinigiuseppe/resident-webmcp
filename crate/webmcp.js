@@ -592,6 +592,47 @@ function installAgentHudDrag() {
   installDragHandle(document.getElementById('agent-mode-hud'));
 }
 
+function clampFloatingSurfaceToViewport(element, margin = DRAG_MARGIN_PX) {
+  if (!element || element.hidden) return;
+
+  const hasInlinePosition = ['left', 'top', 'right', 'bottom']
+    .some(property => element.style[property] !== '');
+  if (!hasInlinePosition) return;
+
+  const rect = element.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return;
+
+  const clamp = (value, min, max) => Math.min(Math.max(value, min), Math.max(min, max));
+  const maxLeft = window.innerWidth - rect.width - margin;
+  const maxTop = window.innerHeight - rect.height - margin;
+  const nextLeft = clamp(rect.left, margin, maxLeft);
+  const nextTop = clamp(rect.top, margin, maxTop);
+
+  if (Math.abs(nextLeft - rect.left) < 0.5 && Math.abs(nextTop - rect.top) < 0.5) return;
+
+  element.style.left = `${nextLeft}px`;
+  element.style.top = `${nextTop}px`;
+  element.style.right = 'auto';
+  element.style.bottom = 'auto';
+  element.style.transform = 'translate3d(0, 0, 0) scale(1)';
+}
+
+function installFloatingSurfaceViewportGuard() {
+  let frame = null;
+  const sync = () => {
+    frame = null;
+    clampFloatingSurfaceToViewport(document.getElementById('agent-mode-hud'));
+    clampFloatingSurfaceToViewport(document.getElementById('agent-debug-panel'));
+  };
+  const schedule = () => {
+    if (frame !== null) window.cancelAnimationFrame(frame);
+    frame = window.requestAnimationFrame(sync);
+  };
+
+  window.addEventListener('resize', schedule, { passive: true });
+  sync();
+}
+
 function updateDebugPanel() {
   const status = document.getElementById('agent-debug-status');
   if (!status) return;
@@ -614,6 +655,7 @@ function installDebugPanel(api) {
   panel.hidden = false;
   trigger.hidden = true;
   installDragHandle(panel, panel.querySelector('.agent-debug-header'));
+  clampFloatingSurfaceToViewport(panel);
 
   const setOpen = open => {
     panel.hidden = !open;
@@ -970,6 +1012,7 @@ async function boot() {
   installHumanOverride();
   installAgentSoundControl();
   installAgentHudDrag();
+  installFloatingSurfaceViewportGuard();
   try {
     const api = await waitForCrateApi();
     installDebugPanel(api);
