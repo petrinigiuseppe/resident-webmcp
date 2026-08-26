@@ -170,7 +170,7 @@
     .fallback-card-btn.primary-btn { border-color: #03ff00; color: #03ff00; }
   </style>
   <!-- Stylesheets -->
-  <link id="crate-stylesheet" rel="stylesheet" href="/crate/style.css?v=20260826-webmcp-m7">
+  <link id="crate-stylesheet" rel="stylesheet" href="/crate/style.css?v=20260826-webmcp-m8">
   <script>
     (function () {
       var root = document.documentElement;
@@ -211,7 +211,7 @@
           recoveryAttempted = true;
           recoveryTimer = window.setTimeout(function () {
             if (confirmStyles()) return;
-      stylesheet.href = '/crate/style.css?v=20260826-webmcp-m7&recovery=' + Date.now();
+      stylesheet.href = '/crate/style.css?v=20260826-webmcp-m8&recovery=' + Date.now();
           }, 80);
         }
 
@@ -306,12 +306,11 @@
       Swipe or scroll to browse the crate
     </div>
 
-    <!-- Agent-native status surface. Hidden until a page agent actually starts a session. -->
+    <!-- Agent-native status surface. Human Mode rests quietly until a page agent starts a session. -->
     <section id="agent-mode-hud" class="agent-mode-hud" data-state="human" role="status" aria-live="polite" aria-atomic="true">
-      <span class="agent-mode-sigil" aria-hidden="true">
-        <span class="agent-eye agent-eye-left"></span>
-        <span class="agent-eye agent-eye-right"></span>
-      </span>
+      <!-- Kept as a compatibility hook for the WebMCP surface check; presence is now a soft inner field, not eyes. -->
+      <span class="agent-mode-sigil" aria-hidden="true" hidden></span>
+      <span class="agent-mode-core" aria-hidden="true"></span>
       <strong id="agent-mode-label" class="agent-mode-label">HUMAN MODE</strong>
       <span id="agent-mode-detail" class="agent-mode-detail">READY FOR YOUR SELECTION</span>
       <div class="agent-mode-footer">
@@ -353,9 +352,11 @@
         <button class="agent-debug-action" type="button" data-agent-debug-action="searching">Searching</button>
         <button class="agent-debug-action" type="button" data-agent-debug-action="focus">Focus picks</button>
         <button class="agent-debug-action" type="button" data-agent-debug-action="add">Add to crate</button>
+        <button class="agent-debug-action" type="button" data-agent-debug-action="remove">Remove from crate</button>
+        <button class="agent-debug-action agent-debug-action-wide" type="button" data-agent-debug-action="checkout">Checkout</button>
         <button class="agent-debug-action agent-debug-action-return" type="button" data-agent-debug-action="return">Return to human</button>
       </div>
-      <p class="agent-debug-note">Local preview only. Uses the existing Add to Crate control. Checkout stays human-controlled.</p>
+      <p class="agent-debug-note">Local preview only. Uses the existing crate controls. Checkout stays human-controlled.</p>
     </aside>
 
     <!-- Active Crate Controls (Unified Glassy Container) -->
@@ -595,8 +596,8 @@
   </div>
 
   <!-- Three.js Local Script Loading -->
-  <script type="module" src="/crate/crate.js?v=20260826-webmcp-m7"></script>
-  <script type="module" src="/crate/webmcp.js?v=20260826-webmcp-m7"></script>
+  <script type="module" src="/crate/crate.js?v=20260826-webmcp-m8"></script>
+  <script type="module" src="/crate/webmcp.js?v=20260826-webmcp-m8"></script>
   <script>
     // Inline failsafe script for loading stuck / script crash
     setTimeout(function() {

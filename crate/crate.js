@@ -429,6 +429,8 @@ function publishCrateApi() {
     },
     setSearchQuery,
     focusRecord: focusRecordById,
+    openRecordDetails: focusRecordById,
+    getLocalCrateRecordIds: () => readLocalCrateItems().slice(),
     focusRecords: recordIds => {
       const normalizedIds = [...new Set((recordIds || []).map(value => String(value).trim()).filter(Boolean))];
       if (normalizedIds.length === 0) {

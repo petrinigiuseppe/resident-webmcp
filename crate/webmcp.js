@@ -398,6 +398,12 @@ function getDebugSampleIds(api) {
     .filter(Boolean);
 }
 
+function getDebugCrateRecordId(api) {
+  const localIds = api.getLocalCrateRecordIds?.();
+  if (Array.isArray(localIds) && localIds.length > 0) return localIds[0];
+  return getDebugSampleIds(api)[0] || null;
+}
+
 async function ensureDebugSession(api) {
   if (agentState === 'human' || agentState === 'override') {
     await startCuratorSession(api, 'local visual debug');
@@ -454,7 +460,21 @@ async function runDebugAction(api, action) {
   }
 
   if (action === 'browsing') {
-    return withAgentActivity('Browsing the crate', () => wait(900));
+    return withAgentActivity('Browsing the crate', async () => {
+      const ids = getDebugSampleIds(api);
+      const sidebarRecordIds = [];
+      for (const id of ids) {
+        const focused = api.openRecordDetails?.(id) || api.focusRecord(id);
+        if (focused?.ok) sidebarRecordIds.push(id);
+        await wait(260);
+      }
+      return {
+        ok: true,
+        debug: true,
+        browsed_record_ids: ids,
+        sidebar_record_ids: sidebarRecordIds
+      };
+    });
   }
 
   if (action === 'focus') {
@@ -472,6 +492,24 @@ async function runDebugAction(api, action) {
       if (ids.length === 0) return resultError('NO_DEBUG_RECORDS', 'No local catalog records are available for the Add to Crate preview.');
       return api.manageCrate(ids[0], 'add');
     });
+  }
+
+  if (action === 'remove') {
+    return withAgentActivity('Removing from My Crate', async () => {
+      const id = getDebugCrateRecordId(api);
+      if (!id) return resultError('NO_DEBUG_RECORDS', 'No local catalog records are available for the Remove from Crate preview.');
+      return api.manageCrate(id, 'remove');
+    });
+  }
+
+  if (action === 'checkout') {
+    return withAgentActivity('Preparing a human checkout review', async () => ({
+      ok: true,
+      debug: true,
+      ...api.prepareCheckout(),
+      human_confirmation_required: true,
+      next_step: 'Review the visible My Crate, then click BUY CRATE yourself.'
+    }));
   }
 
   return resultError('UNKNOWN_DEBUG_ACTION', `Unknown debug action: ${action}`);
@@ -636,8 +674,9 @@ function installHumanOverride() {
   const events = ['pointerdown', 'keydown', 'touchstart', 'wheel'];
   const onHumanInput = event => {
     if (!ACTIVE_STATES.has(agentState)) return;
+    if (debugActionPromise !== null) return;
     if (event.isTrusted === false) return;
-    if (event.target?.closest?.('#agent-mode-hud, #agent-debug-panel, #agent-debug-trigger')) return;
+    if (event.target?.closest?.('#agent-mode-hud, #agent-debug-panel, #agent-debug-trigger, #details-panel, [data-agent-debug-action]')) return;
     setAgentState('override');
     dispatch('seph-agent-focus', { record_ids: [], source: 'human_override' });
   };
@@ -712,7 +751,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   await registerTool(modelContext, {
     name: 'search_catalog',
     title: 'Search visible catalog',
-    description: 'Searches the existing crate search surface by release title or artist and updates the visible crate. Use dig_by_descriptor for metadata DNA matching.',
+    description: 'Searches the existing crate search surface by release title or artist, updates the visible crate, and opens the first match in the existing Song sidebar. Use dig_by_descriptor for metadata DNA matching.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -729,13 +768,17 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
         if (!query) return resultError('INVALID_QUERY', 'A non-empty catalog query is required.');
         const results = searchCatalog(query, input.max_results);
         api.setSearchQuery(query);
-        if (results.length > 0) api.focusRecord(results[0].record_id);
+        const sidebarFocus = results.length > 0
+          ? (api.openRecordDetails?.(results[0].record_id) || api.focusRecord(results[0].record_id))
+          : null;
         return {
           ok: true,
           query,
           search_scope: 'title_and_artist',
           results,
-          result_count: results.length
+          result_count: results.length,
+          sidebar_updated: Boolean(sidebarFocus?.ok),
+          sidebar_record_id: sidebarFocus?.ok ? results[0].record_id : null
         };
       });
     }
@@ -816,7 +859,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
       return withAgentActivity('Inspecting the record', async () => {
         const item = findItem(input.record_id);
         if (!item) return resultError('RECORD_NOT_FOUND', 'The requested record is not in the loaded catalog.');
-        const focused = api.focusRecord(getRecordId(item));
+        const focused = api.openRecordDetails?.(getRecordId(item)) || api.focusRecord(getRecordId(item));
         return {
           ok: true,
           record: getItemSummary(item),
