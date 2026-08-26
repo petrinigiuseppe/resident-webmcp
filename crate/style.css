@@ -711,11 +711,20 @@ html[data-agent-intro="active"] .agent-mode-intro {
   will-change: transform;
 }
 
+/* The visible agent aura is rendered in Three.js with depth testing. Keep the
+   legacy projected SVG underneath the opaque canvas so it can never sit on top
+   of artwork or opened sleeves. */
+#canvas-container > canvas {
+  position: relative;
+  z-index: 1;
+  display: block;
+}
+
 .agent-crate-frame {
   position: absolute;
   top: 0;
   left: 0;
-  z-index: 2;
+  z-index: 0;
   display: block;
   width: 100%;
   height: 100%;
@@ -725,7 +734,7 @@ html[data-agent-intro="active"] .agent-mode-intro {
   opacity: 0;
   transform: scale(0.998);
   transform-origin: center;
-  filter: drop-shadow(0 0 4px currentColor) drop-shadow(0 0 16px currentColor);
+  filter: drop-shadow(0 0 6px currentColor) drop-shadow(0 0 26px currentColor);
   transition: opacity 0.9s ease, transform 1.4s cubic-bezier(0.16, 1, 0.3, 1), filter 1s ease;
 }
 
@@ -774,11 +783,11 @@ html[data-agent-mode="returning"] #canvas-container {
 @keyframes agentCrateFrameBreath {
   0%, 100% {
     opacity: 0.42;
-    filter: drop-shadow(0 0 3px currentColor) drop-shadow(0 0 12px currentColor);
+    filter: drop-shadow(0 0 5px currentColor) drop-shadow(0 0 22px currentColor);
   }
   50% {
     opacity: 0.68;
-    filter: drop-shadow(0 0 5px currentColor) drop-shadow(0 0 20px currentColor);
+    filter: drop-shadow(0 0 8px currentColor) drop-shadow(0 0 34px currentColor);
   }
 }
 
@@ -3681,7 +3690,7 @@ html[data-agent-mode="returning"] .mobile-agent-hint {
   }
 
   .agent-crate-frame {
-    filter: drop-shadow(0 0 3px currentColor) drop-shadow(0 0 14px currentColor);
+    filter: drop-shadow(0 0 5px currentColor) drop-shadow(0 0 22px currentColor);
   }
 
   .buy-button {

@@ -88,6 +88,19 @@ const AGENT_CRATE_FRAME_POINTS = [
 const agentFrameProjection = new THREE.Vector3();
 let agentFrameViewBox = '';
 
+// The first frame implementation was an HTML SVG overlay. Keep that
+// projection for diagnostics/fallback, but render the visible aura in Three.js
+// so depth testing prevents it from drawing through opened sleeves.
+const AGENT_CRATE_AURA_POINTS = [
+  [-0.184, 0.124, -0.19],
+  [0.184, 0.124, -0.19],
+  [0.184, 0.004, 0.19],
+  [0.184, -0.166, 0.19],
+  [-0.184, -0.166, 0.19],
+  [-0.184, 0.004, 0.19]
+];
+let agentCrateAuraInstances = [];
+
 let resolveCrateApiReady;
 window.__CRATE_API_READY_PROMISE__ = new Promise(resolve => {
   resolveCrateApiReady = resolve;
@@ -158,7 +171,14 @@ function getUiAudioContext() {
   if (!AudioContext) return null;
   if (!uiAudioContext) {
     try {
-      uiAudioContext = new AudioContext();
+      const sharedContext = typeof window.__SEPH_GET_AGENT_AUDIO_CONTEXT__ === 'function'
+        ? window.__SEPH_GET_AGENT_AUDIO_CONTEXT__()
+        : window.__SEPH_AGENT_AUDIO_CONTEXT__;
+      if (sharedContext && typeof sharedContext.createGain === 'function') {
+        uiAudioContext = sharedContext;
+      } else {
+        uiAudioContext = new AudioContext();
+      }
     } catch (error) {
       return null;
     }
@@ -166,13 +186,14 @@ function getUiAudioContext() {
   return uiAudioContext;
 }
 
-// A near-subliminal mechanical tick gives human browsing a little physicality.
-// It is deliberately separate from Agent Mode cues and follows the site-wide
-// sound toggle, so muting the behavior layer also mutes navigation feedback.
-function playCrateNavigationTick(direction = 1) {
+// Navigation feedback is a short, low-frequency granular texture rather than
+// a bright UI bleep. It follows the site-wide sound toggle and can be called by
+// both human browsing and the agent's sequential digging preview.
+function playCrateNavigationTick(direction = 1, { agent = false } = {}) {
   if (!siteAudioEnabled) return;
   const nowWall = performance.now();
-  if (nowWall - lastNavigationTickAt < 60) return;
+  const throttleMs = agent ? 120 : 60;
+  if (nowWall - lastNavigationTickAt < throttleMs) return;
   lastNavigationTickAt = nowWall;
 
   const context = getUiAudioContext();
@@ -181,21 +202,39 @@ function playCrateNavigationTick(direction = 1) {
   const play = () => {
     if (!siteAudioEnabled) return;
     const now = context.currentTime;
-    const oscillator = context.createOscillator();
+    const duration = agent ? 0.18 : 0.13;
+    const frameCount = Math.max(1, Math.floor(context.sampleRate * duration));
+    const buffer = context.createBuffer(1, frameCount, context.sampleRate);
+    const samples = buffer.getChannelData(0);
+    let lowFrequencyNoise = 0;
+    for (let index = 0; index < frameCount; index += 1) {
+      const whiteNoise = Math.random() * 2 - 1;
+      lowFrequencyNoise = lowFrequencyNoise * 0.965 + whiteNoise * 0.035;
+      const envelope = Math.sin(Math.PI * (index / Math.max(1, frameCount - 1)));
+      samples[index] = lowFrequencyNoise * 2.8 * envelope;
+    }
+
+    const source = context.createBufferSource();
     const filter = context.createBiquadFilter();
     const gain = context.createGain();
-    oscillator.type = 'triangle';
-    oscillator.frequency.setValueAtTime(direction > 0 ? 720 : 860, now);
+    source.buffer = buffer;
+    source.playbackRate.setValueAtTime(agent ? 0.82 : 0.95, now);
     filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(1500, now);
+    filter.frequency.setValueAtTime(
+      agent
+        ? (direction > 0 ? 330 : 260)
+        : (direction > 0 ? 470 : 380),
+      now
+    );
+    filter.Q.setValueAtTime(0.55, now);
     gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.006, now + 0.008);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.052);
-    oscillator.connect(filter);
+    gain.gain.exponentialRampToValueAtTime(agent ? 0.026 : 0.016, now + 0.022);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+    source.connect(filter);
     filter.connect(gain);
     gain.connect(context.destination);
-    oscillator.start(now);
-    oscillator.stop(now + 0.065);
+    source.start(now);
+    source.stop(now + duration + 0.02);
   };
 
   if (context.state === 'suspended') {
@@ -1728,6 +1767,7 @@ function syncThemeWithBrowser() {
   if (!scene) return;
   const isLightMode = window.matchMedia('(prefers-color-scheme: light)').matches;
   const isMobile = window.innerWidth < 1024;
+  syncAgentCrateAuraTheme(isLightMode);
 
   if (isLightMode) {
     const lightColor = new THREE.Color(0xf5f5f7);
@@ -1835,6 +1875,65 @@ function syncAgentCrateFrame() {
   frame.dataset.crateView = isUserCrateViewActive ? 'my-crate' : 'shop';
 }
 
+function createAgentCrateAura(group) {
+  if (!group) return;
+  const points = AGENT_CRATE_AURA_POINTS.map(([x, y, z]) => new THREE.Vector3(x, y, z));
+  const curve = new THREE.CatmullRomCurve3(points, true, 'centripetal');
+  const geometry = new THREE.TubeGeometry(curve, 48, 0.0085, 6, true);
+  const haloMaterial = new THREE.MeshBasicMaterial({
+    color: 0x80e69a,
+    transparent: true,
+    opacity: 0.16,
+    depthTest: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    toneMapped: false
+  });
+  const coreMaterial = new THREE.MeshBasicMaterial({
+    color: 0x80e69a,
+    transparent: true,
+    opacity: 0.68,
+    depthTest: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    toneMapped: false
+  });
+  const halo = new THREE.Mesh(geometry, haloMaterial);
+  const core = new THREE.Mesh(geometry, coreMaterial);
+  halo.renderOrder = 20;
+  core.renderOrder = 21;
+  halo.frustumCulled = false;
+  core.frustumCulled = false;
+  group.add(halo, core);
+  agentCrateAuraInstances.push({ group, halo, core });
+}
+
+function syncAgentCrateAura(now = performance.now(), reducedMotion = false) {
+  const activeStates = ['loading', 'active', 'busy', 'standby', 'returning'];
+  const isActive = activeStates.includes(agentVisualState);
+  const activeGroup = isUserCrateViewActive ? userCrateGroup : crateGroup;
+  const pulse = reducedMotion ? 1 : 0.5 + (Math.sin(now * 0.00065) * 0.5 + 0.5) * 0.5;
+
+  agentCrateAuraInstances.forEach(({ group, halo, core }) => {
+    const visible = isActive && group === activeGroup;
+    halo.visible = visible;
+    core.visible = visible;
+    if (!visible) return;
+
+    const busyBoost = agentVisualState === 'busy' ? 1.14 : 1;
+    halo.material.opacity = (0.13 + pulse * 0.07) * busyBoost;
+    core.material.opacity = (0.56 + pulse * 0.18) * busyBoost;
+  });
+}
+
+function syncAgentCrateAuraTheme(isLightMode) {
+  const color = isLightMode ? 0x1f7f3a : 0x80e69a;
+  agentCrateAuraInstances.forEach(({ halo, core }) => {
+    halo.material.color.setHex(color);
+    core.material.color.setHex(color);
+  });
+}
+
 function onWindowResize() {
   const container = document.getElementById('canvas-container');
   camera.aspect = container.clientWidth / container.clientHeight;
@@ -1842,6 +1941,7 @@ function onWindowResize() {
   renderer.setSize(container.clientWidth, container.clientHeight);
   updateCameraPosition();
   syncAgentCrateFrame();
+  syncAgentCrateAura();
   syncThemeWithBrowser();
 }
 
@@ -1982,6 +2082,8 @@ function buildCrate() {
 
   createCrateBox(crateGroup, true);
   createCrateBox(userCrateGroup, false);
+  createAgentCrateAura(crateGroup);
+  createAgentCrateAura(userCrateGroup);
 
   // 0. Add a dark floor plane to receive shadows and ground the crate in space
   const floorGeo = new THREE.PlaneGeometry(10, 5); // Expanded width to fit both crates
@@ -2400,12 +2502,16 @@ function startAgentDigPreview() {
       return;
     }
 
+    const previousPreviewIndex = agentDigPreviewIndex;
     agentDigPreviewIndex = availableIndexes[cursor % availableIndexes.length];
     activeIndex = agentDigPreviewIndex;
     isSelected = true;
     document.documentElement.dataset.agentDigPreviewIndex = String(agentDigPreviewIndex);
     showRecordDetails(agentDigPreviewIndex);
     updateRecordHeights();
+    if (previousPreviewIndex >= 0) {
+      playCrateNavigationTick(agentDigPreviewIndex > previousPreviewIndex ? 1 : -1, { agent: true });
+    }
     cursor += 1;
     agentDigPreviewTimer = window.setTimeout(tick, 220);
   };
@@ -2915,6 +3021,7 @@ function animate() {
   // Dynamically update camera position and lookAt based on aspect ratio
   updateCameraPosition();
   syncAgentCrateFrame();
+  syncAgentCrateAura(now, reducedMotion);
 
   // Update active flying vinyl animations
   if (activeAnimations.length > 0) {

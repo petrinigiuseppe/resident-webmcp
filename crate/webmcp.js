@@ -110,9 +110,17 @@ function updateSoundControl() {
 function getAgentAudioContext() {
   const AudioContext = window.AudioContext || window.webkitAudioContext;
   if (!AudioContext) return null;
-  if (!agentAudioContext) agentAudioContext = new AudioContext();
+  if (!agentAudioContext) {
+    agentAudioContext = new AudioContext();
+    window.__SEPH_AGENT_AUDIO_CONTEXT__ = agentAudioContext;
+  }
   return agentAudioContext;
 }
+
+// crate.js uses this shared context for agent-driven navigation textures. A
+// single context keeps browser autoplay/user-gesture state consistent across
+// activation cues and the sequential dig preview.
+window.__SEPH_GET_AGENT_AUDIO_CONTEXT__ = getAgentAudioContext;
 
 function playAgentCue(state, operation) {
   if (!agentSoundEnabled || state === 'human') return;
@@ -137,7 +145,7 @@ function playAgentCue(state, operation) {
       filter.frequency.setValueAtTime(2200, now);
       filter.Q.setValueAtTime(0.35, now);
       master.gain.setValueAtTime(0.0001, now);
-      master.gain.exponentialRampToValueAtTime(0.016, now + 0.34);
+      master.gain.exponentialRampToValueAtTime(0.022, now + 0.34);
       master.gain.exponentialRampToValueAtTime(0.0001, now + introDuration - 0.16);
       delay.delayTime.setValueAtTime(0.38, now);
       tail.gain.setValueAtTime(0.1, now);
@@ -176,11 +184,12 @@ function playAgentCue(state, operation) {
   }
 
   const cues = {
-    active: { frequency: 246, duration: 0.24, gain: 0.018, type: 'sine' },
-    busy: { frequency: operation === 'digging' ? 132 : 158, duration: 0.12, gain: 0.015, type: 'triangle' },
-    returning: { frequency: 196, duration: 0.34, gain: 0.014, type: 'sine', slide: 156 }
+    active: { frequency: 246, duration: 0.24, gain: 0.024, type: 'sine' },
+    busy: { frequency: operation === 'digging' ? 132 : 158, duration: 0.12, gain: 0.021, type: 'triangle' },
+    returning: { frequency: 196, duration: 0.34, gain: 0.020, type: 'sine', slide: 156 }
   };
-  const cue = cues[state] || cues.busy;
+  const cue = cues[state];
+  if (!cue) return;
   const play = () => {
     if (!agentSoundEnabled) return;
     const now = context.currentTime;
@@ -324,9 +333,9 @@ function setAgentState(state, detail = {}) {
   const details = {
     human: 'READY FOR YOUR SELECTION',
     loading: 'CONNECTING TO THE CRATE',
-    active: 'READY TO CURATE',
+    active: 'LISTENING',
     busy: detail.text || 'READING THE CRATE',
-    standby: 'WAITING FOR DIRECTION',
+    standby: 'LISTENING',
     override: 'HUMAN INPUT HAS PRIORITY',
     returning: 'RETURNING CONTROL'
   };
