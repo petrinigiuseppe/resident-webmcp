@@ -1,5 +1,7 @@
 /*
  * Song DNA Lite
+ * SPDX-License-Identifier: MPL-2.0
+ * Copyright (c) 2026 Giuseppe Petrini / Seph Martin
  *
  * A deliberately conservative metadata index for the WebMCP demo.  The live
  * catalog currently contains titles, descriptions, source tags and track

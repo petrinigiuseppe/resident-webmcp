@@ -1,5 +1,7 @@
 /*
  * WebMCP adapter for the Synesthetic Curator demo.
+ * SPDX-License-Identifier: MPL-2.0
+ * Copyright (c) 2026 Giuseppe Petrini / Seph Martin
  *
  * WebMCP is intentionally page-level here: the tools read and mutate the
  * same visible crate the user is looking at.  The adapter talks to the small
