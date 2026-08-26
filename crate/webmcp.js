@@ -663,16 +663,18 @@ function installDragHandle(element, handle = element, { desktopOnly = true } = {
 
     const onEnd = endEvent => {
       if (endEvent?.pointerId !== undefined && endEvent.pointerId !== pointerId) return;
-      handle.removeEventListener('pointermove', onMove);
-      handle.removeEventListener('pointerup', onEnd);
-      handle.removeEventListener('pointercancel', onEnd);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onEnd);
+      window.removeEventListener('pointercancel', onEnd);
       if (handle.hasPointerCapture?.(pointerId)) handle.releasePointerCapture(pointerId);
       element.classList.remove('is-dragging');
     };
 
-    handle.addEventListener('pointermove', onMove);
-    handle.addEventListener('pointerup', onEnd, { once: true });
-    handle.addEventListener('pointercancel', onEnd, { once: true });
+    // Listen on the window while dragging. Touch and synthetic browser drags
+    // can retarget move/up events away from the small header surface.
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onEnd);
+    window.addEventListener('pointercancel', onEnd);
     handle.setPointerCapture?.(pointerId);
     event.preventDefault();
   });
