@@ -185,7 +185,27 @@ async function registerTool(modelContext, tool) {
   await modelContext.registerTool(tool);
 }
 
-async function registerWebMCPTools(api) {
+function getAvailableModelContext() {
+  try {
+    if (document.modelContext && typeof document.modelContext.registerTool === 'function') {
+      return { context: document.modelContext, source: 'document.modelContext' };
+    }
+  } catch (error) {
+    console.warn('[WebMCP] document.modelContext probe failed:', error);
+  }
+
+  try {
+    if (globalThis.navigator?.modelContext && typeof globalThis.navigator.modelContext.registerTool === 'function') {
+      return { context: globalThis.navigator.modelContext, source: 'navigator.modelContext' };
+    }
+  } catch (error) {
+    console.warn('[WebMCP] navigator.modelContext probe failed:', error);
+  }
+
+  return { context: null, source: 'none' };
+}
+
+async function registerWebMCPTools(api, modelContext, modelContextSource) {
   if (toolRegistrationComplete) return;
 
   const readOnly = {
@@ -197,7 +217,7 @@ async function registerWebMCPTools(api) {
     untrustedContentHint: true
   };
 
-  await registerTool(document.modelContext, {
+  await registerTool(modelContext, {
     name: 'start_curator_session',
     title: 'Start Synesthetic Curator session',
     description: 'Call this first. Activates the visible Agent Mode HUD and confirms that the page crate tools are ready. It does not purchase anything.',
@@ -226,7 +246,7 @@ async function registerWebMCPTools(api) {
     }
   });
 
-  await registerTool(document.modelContext, {
+  await registerTool(modelContext, {
     name: 'get_collection_stats',
     title: 'Read crate collection stats',
     description: 'Returns compact, metadata-backed collection statistics and the Song DNA dimensions currently available. Read-only.',
@@ -240,7 +260,7 @@ async function registerWebMCPTools(api) {
     }
   });
 
-  await registerTool(document.modelContext, {
+  await registerTool(modelContext, {
     name: 'search_catalog',
     title: 'Search visible catalog',
     description: 'Searches the existing crate search surface by release title or artist and updates the visible crate. Use dig_by_descriptor for metadata DNA matching.',
@@ -272,7 +292,7 @@ async function registerWebMCPTools(api) {
     }
   });
 
-  await registerTool(document.modelContext, {
+  await registerTool(modelContext, {
     name: 'dig_by_descriptor',
     title: 'Dig by Song DNA descriptor',
     description: 'Ranks catalog records against a natural-language producer descriptor using conservative metadata Song DNA signals, then focuses the top records in the visible crate. It does not claim audio analysis.',
@@ -308,7 +328,7 @@ async function registerWebMCPTools(api) {
     }
   });
 
-  await registerTool(document.modelContext, {
+  await registerTool(modelContext, {
     name: 'focus_records',
     title: 'Focus records in crate',
     description: 'Moves the first requested record to the front of the visible crate and gives the requested records the agent-curated visual treatment.',
@@ -333,7 +353,7 @@ async function registerWebMCPTools(api) {
     }
   });
 
-  await registerTool(document.modelContext, {
+  await registerTool(modelContext, {
     name: 'inspect_record',
     title: 'Inspect Song DNA record',
     description: 'Opens a record in the existing detail panel and returns its catalog metadata plus conservative Song DNA Lite provenance and missing dimensions. Read-only with visible focus.',
@@ -359,7 +379,7 @@ async function registerWebMCPTools(api) {
     }
   });
 
-  await registerTool(document.modelContext, {
+  await registerTool(modelContext, {
     name: 'manage_crate',
     title: 'Add or remove a record from My Crate',
     description: 'Changes the local My Crate using the existing Add to Crate control. This is reversible, does not call checkout, and does not purchase anything.',
@@ -385,7 +405,7 @@ async function registerWebMCPTools(api) {
     }
   });
 
-  await registerTool(document.modelContext, {
+  await registerTool(modelContext, {
     name: 'prepare_checkout',
     title: 'Prepare human checkout review',
     description: 'Shows My Crate and returns a checkout summary for human review. It never opens checkout, creates a payment session, or completes a purchase.',
@@ -401,7 +421,7 @@ async function registerWebMCPTools(api) {
     }
   });
 
-  await registerTool(document.modelContext, {
+  await registerTool(modelContext, {
     name: 'end_curator_session',
     title: 'End Synesthetic Curator session',
     description: 'Returns the page to Human Mode and clears agent-focused record styling. It does not alter My Crate.',
@@ -419,6 +439,7 @@ async function registerWebMCPTools(api) {
   document.documentElement.dataset.webmcp = 'ready';
   dispatch('seph-webmcp-ready', {
     tool_count: 9,
+    model_context_source: modelContextSource,
     tools: [
       'start_curator_session',
       'get_collection_stats',
@@ -437,12 +458,16 @@ async function boot() {
   installHumanOverride();
   try {
     const api = await waitForCrateApi();
-    if (!document.modelContext || typeof document.modelContext.registerTool !== 'function') {
+    const modelContext = getAvailableModelContext();
+    if (!modelContext.context) {
       document.documentElement.dataset.webmcp = 'unsupported';
-      dispatch('seph-webmcp-unsupported', { reason: 'document.modelContext is unavailable' });
+      dispatch('seph-webmcp-unsupported', {
+        reason: 'No supported modelContext producer API is available',
+        checked: ['document.modelContext', 'navigator.modelContext']
+      });
       return;
     }
-    await registerWebMCPTools(api);
+    await registerWebMCPTools(api, modelContext.context, modelContext.source);
   } catch (error) {
     document.documentElement.dataset.webmcp = 'error';
     console.warn('[WebMCP] Adapter did not initialize:', error);
