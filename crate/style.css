@@ -89,7 +89,9 @@ input, textarea, [contenteditable="true"], .postit-code, .postit-text, .postit-p
   position: fixed;
   top: 92px;
   right: 32px;
-  z-index: 40;
+  /* Stay above the detail drawer so agent state remains visible while a
+     tool opens or inspects a record. */
+  z-index: 1200;
   min-width: 238px;
   padding: 12px 14px 13px;
   border: 1px solid rgba(3, 255, 0, 0.28);
