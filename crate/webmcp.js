@@ -48,6 +48,7 @@ let agentSoundEnabled = false;
 let agentAudioContext = null;
 let debugActionPromise = null;
 let agentIntroTimer = null;
+let agentIntroHasShown = false;
 
 function dispatch(name, detail = {}) {
   window.dispatchEvent(new CustomEvent(name, { detail }));
@@ -83,22 +84,22 @@ function inferAgentOperation(state, text = '') {
 
 function updateSoundControl() {
   const root = document.documentElement;
-  const toggle = document.getElementById('agent-sound-toggle');
-  const toggleLabel = document.getElementById('agent-sound-toggle-label');
+  const toggles = [...document.querySelectorAll('[data-agent-sound-toggle]')];
   root.dataset.agentSound = agentSoundEnabled ? 'on' : 'off';
-  if (!toggle) return;
-
-  toggle.hidden = agentState === 'human';
-  toggle.setAttribute('aria-pressed', String(agentSoundEnabled));
-  toggle.setAttribute(
-    'aria-label',
-    agentSoundEnabled ? 'Mute agent behavior sounds' : 'Unmute agent behavior sounds'
-  );
-  toggle.setAttribute(
-    'title',
-    agentSoundEnabled ? 'Mute agent behavior sounds' : 'Unmute agent behavior sounds'
-  );
-  if (toggleLabel) toggleLabel.textContent = agentSoundEnabled ? 'Sound on' : 'Sound off';
+  toggles.forEach(toggle => {
+    toggle.hidden = agentState === 'human';
+    toggle.setAttribute('aria-pressed', String(agentSoundEnabled));
+    toggle.setAttribute(
+      'aria-label',
+      agentSoundEnabled ? 'Mute agent behavior sounds' : 'Unmute agent behavior sounds'
+    );
+    toggle.setAttribute(
+      'title',
+      agentSoundEnabled ? 'Mute agent behavior sounds' : 'Unmute agent behavior sounds'
+    );
+    const toggleLabel = toggle.querySelector('#agent-sound-toggle-label, .agent-sound-toggle-label');
+    if (toggleLabel) toggleLabel.textContent = agentSoundEnabled ? 'Sound on' : 'Sound off';
+  });
 }
 
 function getAgentAudioContext() {
@@ -175,13 +176,16 @@ function restoreHumanAudioAfterExit() {
 }
 
 function installAgentSoundControl() {
-  const toggle = document.getElementById('agent-sound-toggle');
-  if (!toggle || toggle.dataset.bound === 'true') return;
-  toggle.dataset.bound = 'true';
-  toggle.addEventListener('click', event => {
-    event.preventDefault();
-    event.stopPropagation();
-    setSoundEnabled(!agentSoundEnabled);
+  const toggles = [...document.querySelectorAll('[data-agent-sound-toggle]')];
+  if (toggles.length === 0) return;
+  toggles.forEach(toggle => {
+    if (toggle.dataset.bound === 'true') return;
+    toggle.dataset.bound = 'true';
+    toggle.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      setSoundEnabled(!agentSoundEnabled);
+    });
   });
   updateSoundControl();
 }
@@ -220,6 +224,7 @@ function setAgentState(state, detail = {}) {
   const hud = document.getElementById('agent-mode-hud');
   const label = document.getElementById('agent-mode-label');
   const detailEl = document.getElementById('agent-mode-detail');
+  const mobileLabel = document.getElementById('mobile-agent-hint-mode');
   const live = document.getElementById('agent-mode-live');
   const labels = {
     human: 'HUMAN MODE',
@@ -250,6 +255,7 @@ function setAgentState(state, detail = {}) {
   }
   if (label) label.textContent = labels[state] || labels.human;
   if (detailEl) detailEl.textContent = hudDetail;
+  if (mobileLabel) mobileLabel.textContent = labels[state] || labels.human;
   if (live && state !== 'human') live.textContent = `${labels[state] || ''} ${hudOperation}`.trim();
   updateSoundControl();
 
@@ -337,7 +343,10 @@ async function startCuratorSession(api, intent = '') {
   const enteringAgentMode = agentState === 'human' || agentState === 'override';
   sessionStartedAt = new Date().toISOString();
   setAgentState('loading', { text: 'Connecting to the crate', operation: 'loading' });
-  if (enteringAgentMode) triggerAgentIntro();
+  if (enteringAgentMode && !agentIntroHasShown) {
+    agentIntroHasShown = true;
+    triggerAgentIntro();
+  }
   const transitionId = returnTransitionId;
 
   // Keep the first state on screen for one short paint window. This gives the

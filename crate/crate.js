@@ -67,10 +67,12 @@ let hasInteracted = false;
 let agentVisualState = 'human';
 let agentVisualOperation = 'human';
 let agentFocusRecordIds = new Set();
+let agentFocusRevision = 0;
 let baseSpotLightIntensity = 2.5;
 let agentDigPreviewTimer = null;
 let agentDigPreviewToken = 0;
 let agentDigPreviewIndex = -1;
+let agentDigPreviewSnapshot = null;
 
 let resolveCrateApiReady;
 window.__CRATE_API_READY_PROMISE__ = new Promise(resolve => {
@@ -108,6 +110,17 @@ window.addEventListener('seph-agent-state', event => {
   const nextState = event.detail?.state;
   if (nextState) agentVisualState = nextState;
   agentVisualOperation = event.detail?.operation || 'human';
+  const helper = document.getElementById('interaction-helper');
+  const humanSurface = agentVisualState === 'human' || agentVisualState === 'override';
+  if (!humanSurface) {
+    if (inactivityTimer) {
+      clearTimeout(inactivityTimer);
+      inactivityTimer = null;
+    }
+    if (helper) helper.classList.add('fade-out');
+  } else {
+    resetInactivityTimer();
+  }
   if (agentVisualState === 'busy' && agentVisualOperation === 'digging') {
     startAgentDigPreview();
   } else {
@@ -243,6 +256,7 @@ function setSearchQuery(query) {
 }
 
 function setAgentFocusRecords(recordIds) {
+  agentFocusRevision += 1;
   agentFocusRecordIds = new Set(
     (recordIds || [])
       .map(value => String(value).trim())
@@ -673,7 +687,8 @@ function dismissLoader() {
       const detailsPanel = document.getElementById('details-panel');
       const detailsOpen = detailsPanel && !detailsPanel.classList.contains('hidden');
       const currentlySelected = isUserCrateViewActive ? userIsSelected : isSelected;
-      if (!currentlySelected && !detailsOpen) {
+      const humanSurface = agentVisualState === 'human' || agentVisualState === 'override';
+      if (humanSurface && !currentlySelected && !detailsOpen) {
         hasInteracted = false;
         helper.classList.remove('fade-out');
         resetInactivityTimer();
@@ -1474,6 +1489,10 @@ const INACTIVITY_DELAY = 12000; // 12 seconds of inactivity
 
 function showHelper() {
   const helper = document.getElementById('interaction-helper');
+  if (agentVisualState !== 'human' && agentVisualState !== 'override') {
+    if (helper) helper.classList.add('fade-out');
+    return;
+  }
   const detailsPanel = document.getElementById('details-panel');
   const detailsOpen = detailsPanel && !detailsPanel.classList.contains('hidden');
   const currentlySelected = isUserCrateViewActive ? userIsSelected : isSelected;
@@ -1486,7 +1505,10 @@ function showHelper() {
 function resetInactivityTimer() {
   if (inactivityTimer) {
     clearTimeout(inactivityTimer);
+    inactivityTimer = null;
   }
+
+  if (agentVisualState !== 'human' && agentVisualState !== 'override') return;
   
   const detailsPanel = document.getElementById('details-panel');
   const detailsOpen = detailsPanel && !detailsPanel.classList.contains('hidden');
@@ -2146,18 +2168,71 @@ function updateRecordHeights() {
   });
 }
 
-function stopAgentDigPreview() {
+function stopAgentDigPreview({ restore = true } = {}) {
+  const previewIndex = agentDigPreviewIndex;
+  const snapshot = agentDigPreviewSnapshot;
+  const focusChanged = snapshot && agentFocusRevision !== snapshot.focusRevision;
   agentDigPreviewToken += 1;
   if (agentDigPreviewTimer) window.clearTimeout(agentDigPreviewTimer);
   agentDigPreviewTimer = null;
   agentDigPreviewIndex = -1;
   delete document.documentElement.dataset.agentDigPreviewIndex;
+  agentDigPreviewSnapshot = null;
+
+  // If a dig is interrupted or returns no matches, do not leave the crate and
+  // Song sidebar parked on an arbitrary preview sleeve. A successful focus
+  // changes the agent focus set and intentionally keeps the final selection.
+  if (restore && snapshot && previewIndex >= 0 && !focusChanged) {
+    if (snapshot.isUserCrateViewActive) {
+      isUserCrateViewActive = true;
+      globalCamXOffset = 1.3;
+      const shopBtn = document.getElementById('view-shop-btn');
+      const myCrateBtn = document.getElementById('view-mycrate-btn');
+      if (shopBtn) shopBtn.classList.remove('active');
+      if (myCrateBtn) myCrateBtn.classList.add('active');
+      userActiveIndex = snapshot.userActiveIndex;
+      userIsSelected = snapshot.userIsSelected;
+      if (userIsSelected) showRecordDetails(userActiveIndex);
+      else deselectRecord();
+    } else {
+      isUserCrateViewActive = false;
+      globalCamXOffset = 0;
+      const shopBtn = document.getElementById('view-shop-btn');
+      const myCrateBtn = document.getElementById('view-mycrate-btn');
+      if (shopBtn) shopBtn.classList.add('active');
+      if (myCrateBtn) myCrateBtn.classList.remove('active');
+      activeIndex = snapshot.activeIndex;
+      isSelected = snapshot.isSelected;
+      if (isSelected) showRecordDetails(activeIndex);
+      else deselectRecord();
+    }
+  }
   updateRecordHeights();
 }
 
 function startAgentDigPreview() {
-  stopAgentDigPreview();
-  if (isUserCrateViewActive || recordsData.length === 0) return;
+  stopAgentDigPreview({ restore: false });
+  if (recordsData.length === 0) return;
+
+  agentDigPreviewSnapshot = {
+    isUserCrateViewActive,
+    activeIndex,
+    isSelected,
+    userActiveIndex,
+    userIsSelected,
+    focusRevision: agentFocusRevision
+  };
+
+  // An agent dig is a shop-wide operation. If the user was looking at My
+  // Crate, move to the shop surface before the first preview sleeve rises.
+  if (isUserCrateViewActive) {
+    const shopBtn = document.getElementById('view-shop-btn');
+    if (shopBtn) shopBtn.click();
+    else {
+      isUserCrateViewActive = false;
+      globalCamXOffset = 0;
+    }
+  }
 
   const previewToken = ++agentDigPreviewToken;
   let cursor = Math.max(0, activeIndex);
@@ -2180,7 +2255,9 @@ function startAgentDigPreview() {
 
     agentDigPreviewIndex = availableIndexes[cursor % availableIndexes.length];
     activeIndex = agentDigPreviewIndex;
+    isSelected = true;
     document.documentElement.dataset.agentDigPreviewIndex = String(agentDigPreviewIndex);
+    showRecordDetails(agentDigPreviewIndex);
     updateRecordHeights();
     cursor += 1;
     agentDigPreviewTimer = window.setTimeout(tick, 220);
