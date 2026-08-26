@@ -256,7 +256,6 @@ html[data-agent-operation="returning"] .agent-eye {
 }
 
 .agent-mode-detail,
-.agent-mode-operation,
 .agent-sound-toggle {
   font-family: var(--font-mono);
   font-size: 0.56rem;
@@ -289,13 +288,6 @@ html[data-agent-operation="returning"] .agent-eye {
   justify-content: center;
   min-height: 28px;
   margin-top: 14px;
-}
-
-.agent-mode-operation {
-  color: var(--agent-color);
-  font-size: 0.55rem;
-  line-height: 1.2;
-  text-transform: uppercase;
 }
 
 .agent-sound-toggle {

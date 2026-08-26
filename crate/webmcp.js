@@ -218,7 +218,6 @@ function setAgentState(state, detail = {}) {
   const hud = document.getElementById('agent-mode-hud');
   const label = document.getElementById('agent-mode-label');
   const detailEl = document.getElementById('agent-mode-detail');
-  const operationEl = document.getElementById('agent-mode-operation');
   const live = document.getElementById('agent-mode-live');
   const labels = {
     human: 'HUMAN MODE',
@@ -249,7 +248,6 @@ function setAgentState(state, detail = {}) {
   }
   if (label) label.textContent = labels[state] || labels.human;
   if (detailEl) detailEl.textContent = hudDetail;
-  if (operationEl) operationEl.textContent = hudOperation;
   if (live && state !== 'human') live.textContent = `${labels[state] || ''} ${hudOperation}`.trim();
   updateSoundControl();
 
@@ -470,7 +468,7 @@ function updateDebugPanel() {
   const status = document.getElementById('agent-debug-status');
   if (!status) return;
   const label = document.getElementById('agent-mode-label')?.textContent || 'Human Mode';
-  const operation = document.getElementById('agent-mode-operation')?.textContent || 'Human control';
+  const operation = AGENT_OPERATION_LABELS[document.documentElement.dataset.agentOperation] || AGENT_OPERATION_LABELS.human;
   status.textContent = `${label} · ${operation}`;
 }
 
