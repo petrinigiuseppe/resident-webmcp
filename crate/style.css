@@ -125,6 +125,10 @@ input, textarea, [contenteditable="true"], .postit-code, .postit-text, .postit-p
   text-align: center;
 }
 
+.agent-mode-hud[hidden] {
+  display: none !important;
+}
+
 .agent-mode-hud::before {
   content: '';
   position: absolute;
@@ -180,8 +184,8 @@ html[data-agent-mode="returning"] .agent-mode-hud {
   --agent-muted: rgba(193, 225, 197, 0.62);
   border-color: rgba(138, 203, 146, 0.28);
   background:
-    radial-gradient(circle at 50% 32%, rgba(138, 203, 146, 0.1), transparent 58%),
-    linear-gradient(145deg, rgba(138, 203, 146, 0.08), rgba(5, 12, 7, 0.58));
+    radial-gradient(circle at 50% 32%, rgba(174, 231, 180, 0.24), transparent 58%),
+    linear-gradient(145deg, rgba(138, 203, 146, 0.2), rgba(23, 107, 42, 0.34));
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.16), 0 0 28px rgba(138, 203, 146, 0.1);
 }
 
@@ -217,7 +221,7 @@ html[data-agent-mode="returning"] .agent-mode-core {
   opacity: 0.72;
   background:
     radial-gradient(circle at 50% 34%, rgba(174, 231, 180, 0.2), transparent 62%),
-    linear-gradient(145deg, rgba(138, 203, 146, 0.1), rgba(2, 13, 5, 0.14));
+    linear-gradient(145deg, rgba(138, 203, 146, 0.18), rgba(23, 107, 42, 0.26));
   animation: agentCoreBreathe 4.8s ease-in-out infinite;
 }
 
@@ -399,13 +403,48 @@ html[data-agent-sound="off"] .agent-sound-mute {
   z-index: 1400;
   display: grid;
   place-items: center;
+  overflow: hidden;
+  isolation: isolate;
   background:
-    radial-gradient(circle at center, rgba(138, 203, 146, 0.13), transparent 46%),
-    rgba(5, 10, 7, 0.66);
+    radial-gradient(circle at 50% 48%, rgba(201, 251, 205, 0.3), transparent 38%),
+    radial-gradient(circle at 50% 50%, rgba(23, 107, 42, 0.72), transparent 76%),
+    linear-gradient(135deg, rgba(11, 62, 20, 0.94), rgba(74, 165, 86, 0.5));
   backdrop-filter: blur(26px) saturate(140%);
   -webkit-backdrop-filter: blur(26px) saturate(140%);
   opacity: 0;
   pointer-events: none;
+}
+
+.agent-mode-intro::before,
+.agent-mode-intro::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+.agent-mode-intro::before {
+  inset: -36%;
+  background: conic-gradient(
+    from 205deg,
+    transparent 0 28%,
+    rgba(180, 245, 186, 0.34) 36%,
+    transparent 44% 60%,
+    rgba(138, 203, 146, 0.22) 70%,
+    transparent 78% 100%
+  );
+  filter: blur(18px);
+  opacity: 0;
+  transform: rotate(-25deg) scale(0.78);
+  animation: agentIntroOrbit 1.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.agent-mode-intro::after {
+  inset: -10% -30%;
+  background: linear-gradient(110deg, transparent 38%, rgba(213, 255, 217, 0.34) 49%, transparent 60%);
+  opacity: 0;
+  transform: translateX(-120%) skewX(-10deg);
+  animation: agentIntroSweep 1.5s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .agent-mode-intro[hidden] {
@@ -418,6 +457,8 @@ html[data-agent-intro="active"] .agent-mode-intro {
 }
 
 .agent-intro-copy {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -429,13 +470,13 @@ html[data-agent-intro="active"] .agent-mode-intro {
 }
 
 .agent-intro-copy strong {
-  color: #f7fff8;
+  color: #c7ffcd;
   font-family: var(--font-sans);
   font-size: clamp(0.96rem, 2.4vw, 1.18rem);
   font-weight: 600;
   letter-spacing: 0.24em;
   line-height: 1.35;
-  text-shadow: 0 0 24px rgba(138, 203, 146, 0.28);
+  text-shadow: 0 0 18px rgba(198, 255, 204, 0.62), 0 0 42px rgba(138, 203, 146, 0.34);
   text-transform: uppercase;
 }
 
@@ -451,6 +492,20 @@ html[data-agent-intro="active"] .agent-mode-intro {
   18% { opacity: 1; transform: translateY(0); }
   72% { opacity: 1; transform: translateY(0); }
   100% { opacity: 0; transform: translateY(-5px); }
+}
+
+@keyframes agentIntroOrbit {
+  0% { opacity: 0; transform: rotate(-25deg) scale(0.78); }
+  20% { opacity: 0.86; }
+  70% { opacity: 0.52; }
+  100% { opacity: 0; transform: rotate(18deg) scale(1.05); }
+}
+
+@keyframes agentIntroSweep {
+  0% { opacity: 0; transform: translateX(-120%) skewX(-10deg); }
+  22% { opacity: 1; }
+  68% { opacity: 0.72; }
+  100% { opacity: 0; transform: translateX(120%) skewX(-10deg); }
 }
 
 .agent-debug-trigger,
@@ -608,6 +663,14 @@ html[data-agent-intro="active"] .agent-mode-intro {
 #canvas-container {
   --agent-aura-soft: rgba(138, 203, 146, 0.08);
   --agent-aura-line: rgba(138, 203, 146, 0.16);
+  --agent-aura-shimmer: conic-gradient(
+    from 210deg,
+    transparent 0 28%,
+    rgba(180, 245, 186, 0.34) 36%,
+    transparent 44% 60%,
+    rgba(138, 203, 146, 0.22) 70%,
+    transparent 78% 100%
+  );
   transform-origin: 50% 50%;
   will-change: transform;
 }
@@ -619,7 +682,7 @@ html[data-agent-intro="active"] .agent-mode-intro {
   z-index: 2;
   pointer-events: none;
   border-radius: 50%;
-  background: var(--agent-aura-soft);
+  background: var(--agent-aura-shimmer);
   -webkit-mask: radial-gradient(ellipse at center, transparent 0 53%, #000 58% 65%, transparent 75%);
   mask: radial-gradient(ellipse at center, transparent 0 53%, #000 58% 65%, transparent 75%);
   filter: blur(15px);
@@ -658,6 +721,13 @@ html[data-agent-mode="returning"] #canvas-container::before {
   transform: scale(1);
 }
 
+html[data-agent-mode="loading"] #canvas-container::before,
+html[data-agent-mode="active"] #canvas-container::before,
+html[data-agent-mode="busy"] #canvas-container::before,
+html[data-agent-mode="standby"] #canvas-container::before {
+  animation: agentHeroShimmer 7s ease-in-out infinite;
+}
+
 html[data-agent-mode="loading"] #canvas-container,
 html[data-agent-mode="busy"] #canvas-container {
   animation: agentCrateFloat 5.5s ease-in-out infinite;
@@ -680,6 +750,13 @@ html[data-agent-mode="returning"] #canvas-container {
 @keyframes agentCrateReturn {
   0% { transform: translate3d(0, -2px, 0) scale(1.002); }
   100% { transform: translate3d(0, 0, 0) scale(1); }
+}
+
+@keyframes agentHeroShimmer {
+  0%, 100% { opacity: 0.38; transform: scale(0.98) rotate(-12deg); }
+  28% { opacity: 0.92; transform: scale(1) rotate(28deg); }
+  54% { opacity: 0.54; transform: scale(1.015) rotate(84deg); }
+  78% { opacity: 0.78; transform: scale(1) rotate(142deg); }
 }
 
 /* Header */
@@ -806,17 +883,21 @@ html[data-agent-mode="returning"] #canvas-container {
   --agent-muted: rgba(255, 255, 255, 0.48);
   display: none;
   position: fixed;
-  top: 74px;
+  top: clamp(104px, 17vh, 156px);
   left: 50%;
   z-index: 1205;
   width: min(340px, calc(100vw - 40px));
-  transform: translateX(-50%);
+  transform: translate(-50%, -50%);
   color: rgba(255, 255, 255, 0.62);
   pointer-events: none;
   user-select: none;
   text-align: center;
   text-shadow: 0 0 14px rgba(255, 255, 255, 0.12);
   animation: mobileAgentHintFlicker 3.8s ease-in-out infinite;
+}
+
+.mobile-agent-hint[hidden] {
+  display: none !important;
 }
 
 .mobile-agent-hint-copy {
@@ -836,14 +917,6 @@ html[data-agent-mode="returning"] #canvas-container {
   font-weight: 600;
   letter-spacing: 0.18em;
   line-height: 1.3;
-}
-
-.mobile-agent-sound-toggle {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%);
-  pointer-events: auto;
 }
 
 html[data-agent-mode="loading"] .mobile-agent-hint,
@@ -1742,7 +1815,9 @@ html[data-agent-mode="returning"] .mobile-agent-hint {
   .agent-mode-intro,
   .agent-intro-copy,
   .mobile-agent-hint,
-  #canvas-container {
+  #canvas-container,
+  #canvas-container::before,
+  #canvas-container::after {
     animation: none !important;
   }
 }
@@ -3372,8 +3447,8 @@ html[data-agent-mode="returning"] .mobile-agent-hint {
     --agent-muted: #4d6651;
     border-color: rgba(23, 107, 42, 0.22);
     background:
-      radial-gradient(circle at 50% 32%, rgba(112, 192, 125, 0.16), transparent 60%),
-      linear-gradient(145deg, rgba(255, 255, 255, 0.88), rgba(225, 239, 227, 0.72));
+      radial-gradient(circle at 50% 32%, rgba(112, 192, 125, 0.24), transparent 60%),
+      linear-gradient(145deg, rgba(166, 225, 172, 0.64), rgba(73, 157, 84, 0.54));
     box-shadow: 0 14px 34px rgba(0, 0, 0, 0.1), 0 0 28px rgba(23, 107, 42, 0.12);
   }
 
@@ -3421,7 +3496,7 @@ html[data-agent-mode="returning"] .mobile-agent-hint {
   html[data-agent-mode="returning"] .agent-mode-core {
     background:
       radial-gradient(circle at 50% 34%, rgba(112, 192, 125, 0.32), transparent 62%),
-      linear-gradient(145deg, rgba(23, 107, 42, 0.12), rgba(255, 255, 255, 0.12));
+      linear-gradient(145deg, rgba(23, 107, 42, 0.2), rgba(112, 192, 125, 0.3));
     opacity: 0.72;
   }
 
@@ -3435,15 +3510,16 @@ html[data-agent-mode="returning"] .mobile-agent-hint {
 
   .agent-mode-intro {
     background:
-      radial-gradient(circle at center, rgba(23, 107, 42, 0.13), transparent 46%),
-      rgba(245, 245, 247, 0.7);
+      radial-gradient(circle at 50% 48%, rgba(224, 255, 227, 0.78), transparent 38%),
+      radial-gradient(circle at 50% 50%, rgba(112, 192, 125, 0.66), transparent 76%),
+      linear-gradient(135deg, rgba(224, 250, 226, 0.96), rgba(118, 193, 128, 0.84));
     backdrop-filter: blur(26px) saturate(140%);
     -webkit-backdrop-filter: blur(26px) saturate(140%);
   }
 
   .agent-intro-copy strong {
-    color: #1d1d1f;
-    text-shadow: 0 0 20px rgba(23, 107, 42, 0.16);
+    color: #0f5d22;
+    text-shadow: 0 0 22px rgba(23, 107, 42, 0.3);
   }
 
   .mobile-agent-hint {
@@ -3513,6 +3589,14 @@ html[data-agent-mode="returning"] .mobile-agent-hint {
   #canvas-container {
     --agent-aura-soft: rgba(23, 107, 42, 0.06);
     --agent-aura-line: rgba(23, 107, 42, 0.12);
+    --agent-aura-shimmer: conic-gradient(
+      from 210deg,
+      transparent 0 28%,
+      rgba(23, 107, 42, 0.22) 36%,
+      transparent 44% 60%,
+      rgba(112, 192, 125, 0.2) 70%,
+      transparent 78% 100%
+    );
   }
 
   .buy-button {

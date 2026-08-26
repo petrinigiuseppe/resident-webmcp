@@ -15,7 +15,7 @@ const MAX_TOOL_OUTPUT_RECORDS = 12;
 const ACTIVE_STATES = new Set(['loading', 'active', 'busy', 'standby']);
 const DEBUG_QUERY_KEYS = ['webmcp_debug', 'agent_debug'];
 const SESSION_HANDSHAKE_MS = 280;
-const AGENT_INTRO_MS = 1320;
+const AGENT_INTRO_MS = 1500;
 const DIG_PREVIEW_MS = 860;
 const DRAG_MARGIN_PX = 12;
 const AGENT_OPERATION_LABELS = {
@@ -49,6 +49,7 @@ let agentAudioContext = null;
 let debugActionPromise = null;
 let agentIntroTimer = null;
 let agentIntroHasShown = false;
+let agentModeHasBeenEntered = false;
 
 function dispatch(name, detail = {}) {
   window.dispatchEvent(new CustomEvent(name, { detail }));
@@ -212,6 +213,14 @@ function triggerAgentIntro() {
   agentIntroTimer = window.setTimeout(clearAgentIntro, AGENT_INTRO_MS);
 }
 
+function updateAgentPresenceVisibility() {
+  const visibility = !agentModeHasBeenEntered;
+  const hud = document.getElementById('agent-mode-hud');
+  const hint = document.getElementById('mobile-agent-hint');
+  if (hud) hud.hidden = visibility;
+  if (hint) hint.hidden = visibility;
+}
+
 function setAgentState(state, detail = {}) {
   const previousState = agentState;
   const previousOperation = agentOperation;
@@ -256,6 +265,7 @@ function setAgentState(state, detail = {}) {
   if (label) label.textContent = labels[state] || labels.human;
   if (detailEl) detailEl.textContent = hudDetail;
   if (mobileLabel) mobileLabel.textContent = labels[state] || labels.human;
+  updateAgentPresenceVisibility();
   if (live && state !== 'human') live.textContent = `${labels[state] || ''} ${hudOperation}`.trim();
   updateSoundControl();
 
@@ -341,6 +351,7 @@ async function withAgentActivity(text, work) {
 
 async function startCuratorSession(api, intent = '') {
   const enteringAgentMode = agentState === 'human' || agentState === 'override';
+  if (enteringAgentMode) agentModeHasBeenEntered = true;
   sessionStartedAt = new Date().toISOString();
   setAgentState('loading', { text: 'Connecting to the crate', operation: 'loading' });
   if (enteringAgentMode && !agentIntroHasShown) {

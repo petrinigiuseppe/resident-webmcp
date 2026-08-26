@@ -170,7 +170,7 @@
     .fallback-card-btn.primary-btn { border-color: #03ff00; color: #03ff00; }
   </style>
   <!-- Stylesheets -->
-  <link id="crate-stylesheet" rel="stylesheet" href="/crate/style.css?v=20260826-webmcp-m10">
+  <link id="crate-stylesheet" rel="stylesheet" href="/crate/style.css?v=20260826-webmcp-m12">
   <script>
     (function () {
       var root = document.documentElement;
@@ -211,7 +211,7 @@
           recoveryAttempted = true;
           recoveryTimer = window.setTimeout(function () {
             if (confirmStyles()) return;
-      stylesheet.href = '/crate/style.css?v=20260826-webmcp-m10&recovery=' + Date.now();
+      stylesheet.href = '/crate/style.css?v=20260826-webmcp-m12&recovery=' + Date.now();
           }, 80);
         }
 
@@ -307,25 +307,14 @@
     </div>
 
     <!-- Compact mobile agent surface: the desktop orb is intentionally absent on small screens. -->
-    <div id="mobile-agent-hint" class="mobile-agent-hint" role="status" aria-live="polite" aria-atomic="true">
+    <div id="mobile-agent-hint" class="mobile-agent-hint" role="status" aria-live="polite" aria-atomic="true" hidden>
       <div class="mobile-agent-hint-copy">
         <strong id="mobile-agent-hint-mode">HUMAN MODE</strong>
       </div>
-      <button id="mobile-agent-sound-toggle" class="agent-sound-toggle mobile-agent-sound-toggle" data-agent-sound-toggle type="button" aria-label="Unmute agent behavior sounds" title="Unmute agent behavior sounds" aria-pressed="false" hidden>
-        <span class="agent-sound-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" focusable="false">
-            <path class="agent-sound-speaker" d="M5 10v4h3l4 3V7l-4 3H5Z"></path>
-            <path class="agent-sound-wave" d="M15 9.5a4 4 0 0 1 0 5"></path>
-            <path class="agent-sound-wave" d="M17.8 7a8 8 0 0 1 0 10"></path>
-            <path class="agent-sound-mute" d="m15.5 9.5 5 5m0-5-5 5"></path>
-          </svg>
-        </span>
-        <span class="agent-sound-toggle-label sr-only">Sound off</span>
-      </button>
     </div>
 
     <!-- Agent-native status surface. Human Mode rests quietly until a page agent starts a session. -->
-    <section id="agent-mode-hud" class="agent-mode-hud" data-state="human" role="status" aria-live="polite" aria-atomic="true">
+    <section id="agent-mode-hud" class="agent-mode-hud" data-state="human" role="status" aria-live="polite" aria-atomic="true" hidden>
       <!-- Kept as a compatibility hook for the WebMCP surface check; presence is now a soft inner field, not eyes. -->
       <span class="agent-mode-sigil" aria-hidden="true" hidden></span>
       <span class="agent-mode-core" aria-hidden="true"></span>
@@ -615,8 +604,8 @@
   </div>
 
   <!-- Three.js Local Script Loading -->
-  <script type="module" src="/crate/crate.js?v=20260826-webmcp-m10"></script>
-  <script type="module" src="/crate/webmcp.js?v=20260826-webmcp-m10"></script>
+  <script type="module" src="/crate/crate.js?v=20260826-webmcp-m12"></script>
+  <script type="module" src="/crate/webmcp.js?v=20260826-webmcp-m12"></script>
   <script>
     // Inline failsafe script for loading stuck / script crash
     setTimeout(function() {
