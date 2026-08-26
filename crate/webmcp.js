@@ -215,8 +215,10 @@ function playAgentCue(state, operation) {
 }
 
 function unlockAgentAudio() {
-  if (!agentSoundEnabled || !agentAudioContext || agentAudioContext.state !== 'suspended') return;
-  agentAudioContext.resume().then(() => {
+  if (!agentSoundEnabled) return;
+  const context = getAgentAudioContext();
+  if (!context || context.state !== 'suspended') return;
+  context.resume().then(() => {
     if (pendingAgentActivationCue && agentState !== 'human') {
       playAgentCue('loading', agentOperation);
     }
