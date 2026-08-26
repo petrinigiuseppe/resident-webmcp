@@ -45,8 +45,11 @@ let activityDepth = 0;
 let toolRegistrationComplete = false;
 let sessionStartedAt = null;
 let returnTransitionId = 0;
-let agentSoundEnabled = false;
+// Agent Mode sound cues are intentionally enabled for the first session so
+// the activation handoff is audible. The user can mute them from the HUD.
+let agentSoundEnabled = true;
 let agentAudioContext = null;
+let pendingAgentActivationCue = false;
 let debugActionPromise = null;
 let agentIntroTimer = null;
 let agentIntroHasShown = false;
@@ -118,7 +121,11 @@ function playAgentCue(state, operation) {
 
   if (state === 'loading') {
     const playActivation = () => {
-      if (!agentSoundEnabled) return;
+      if (!agentSoundEnabled) {
+        pendingAgentActivationCue = false;
+        return;
+      }
+      pendingAgentActivationCue = false;
 
       const now = context.currentTime;
       const master = context.createGain();
@@ -159,6 +166,7 @@ function playAgentCue(state, operation) {
     };
 
     if (context.state === 'suspended') {
+      pendingAgentActivationCue = true;
       context.resume().then(playActivation).catch(() => {});
     } else {
       playActivation();
@@ -196,8 +204,25 @@ function playAgentCue(state, operation) {
   }
 }
 
+function unlockAgentAudio() {
+  if (!agentSoundEnabled || !agentAudioContext || agentAudioContext.state !== 'suspended') return;
+  agentAudioContext.resume().then(() => {
+    if (pendingAgentActivationCue && agentState !== 'human') {
+      playAgentCue('loading', agentOperation);
+    }
+  }).catch(() => {});
+}
+
+function installAgentAudioUnlock() {
+  const unlock = () => unlockAgentAudio();
+  ['pointerdown', 'keydown', 'touchstart'].forEach(eventName => {
+    window.addEventListener(eventName, unlock, { passive: true });
+  });
+}
+
 function setSoundEnabled(enabled) {
   agentSoundEnabled = Boolean(enabled);
+  if (!agentSoundEnabled) pendingAgentActivationCue = false;
   if (agentSoundEnabled) {
     const context = getAgentAudioContext();
     if (context?.state === 'suspended') context.resume().catch(() => {});
@@ -213,6 +238,7 @@ function setSoundEnabled(enabled) {
 
 function restoreHumanAudioAfterExit() {
   agentSoundEnabled = false;
+  pendingAgentActivationCue = false;
   if (agentAudioContext && agentAudioContext.state !== 'closed') {
     agentAudioContext.suspend().catch(() => {});
   }
@@ -405,7 +431,14 @@ async function withAgentActivity(text, work) {
 
 async function startCuratorSession(api, intent = '') {
   const enteringAgentMode = agentState === 'human' || agentState === 'override';
-  if (enteringAgentMode) agentModeHasBeenEntered = true;
+  if (enteringAgentMode) {
+    agentModeHasBeenEntered = true;
+    // Every new Agent Mode session starts audible again; muting remains a
+    // session-level user choice until the agent returns control to the human.
+    agentSoundEnabled = true;
+    pendingAgentActivationCue = false;
+    updateSoundControl();
+  }
   sessionStartedAt = new Date().toISOString();
   setAgentState('loading', { text: 'Connecting to the crate', operation: 'loading' });
   if (enteringAgentMode && !agentIntroHasShown) {
@@ -711,7 +744,9 @@ function installDebugPanel(api) {
   document.documentElement.dataset.agentDebug = 'enabled';
   panel.hidden = false;
   trigger.hidden = true;
-  installDragHandle(panel, panel.querySelector('.agent-debug-header'));
+  // The header is a pointer-events drag surface on both desktop and touch;
+  // only native resize remains desktop-only in CSS.
+  installDragHandle(panel, panel.querySelector('.agent-debug-header'), { desktopOnly: false });
   clampFloatingSurfaceToViewport(panel);
 
   const setOpen = open => {
@@ -1072,6 +1107,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
 async function boot() {
   installHumanOverride();
   installAgentSoundControl();
+  installAgentAudioUnlock();
   installAgentHudDrag();
   installFloatingSurfaceViewportGuard();
   try {
