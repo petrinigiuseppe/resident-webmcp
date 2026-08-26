@@ -170,7 +170,7 @@
     .fallback-card-btn.primary-btn { border-color: #03ff00; color: #03ff00; }
   </style>
   <!-- Stylesheets -->
-  <link id="crate-stylesheet" rel="stylesheet" href="/crate/style.css?v=20260826-webmcp-m3">
+  <link id="crate-stylesheet" rel="stylesheet" href="/crate/style.css?v=20260826-webmcp-m4">
   <script>
     (function () {
       var root = document.documentElement;
@@ -211,7 +211,7 @@
           recoveryAttempted = true;
           recoveryTimer = window.setTimeout(function () {
             if (confirmStyles()) return;
-            stylesheet.href = '/crate/style.css?v=20260826-webmcp-m3&recovery=' + Date.now();
+      stylesheet.href = '/crate/style.css?v=20260826-webmcp-m4&recovery=' + Date.now();
           }, 80);
         }
 
@@ -308,24 +308,48 @@
 
     <!-- Agent-native status surface. Hidden until a page agent actually starts a session. -->
     <section id="agent-mode-hud" class="agent-mode-hud" data-state="human" role="status" aria-live="polite" aria-atomic="true">
-      <div class="agent-mode-hud-line">
-        <span class="agent-mode-sigil" aria-hidden="true">
-          <span class="agent-eye agent-eye-left"></span>
-          <span class="agent-eye agent-eye-right"></span>
-        </span>
-        <span class="agent-mode-kicker">WEBMCP // SYNTHETIC CURATOR</span>
-      </div>
+      <span class="agent-mode-sigil" aria-hidden="true">
+        <span class="agent-eye agent-eye-left"></span>
+        <span class="agent-eye agent-eye-right"></span>
+      </span>
       <strong id="agent-mode-label" class="agent-mode-label">Human Mode</strong>
-      <span id="agent-mode-detail" class="agent-mode-detail">WEBMCP // DORMANT</span>
+      <span id="agent-mode-detail" class="agent-mode-detail">Ready for your selection</span>
       <div class="agent-mode-footer">
-        <span id="agent-mode-operation" class="agent-mode-operation">HUMAN CONTROL</span>
-        <button id="agent-sound-toggle" class="agent-sound-toggle" type="button" aria-label="Unmute agent behavior sounds" aria-pressed="false" hidden>
-          <span class="agent-sound-toggle-mark" aria-hidden="true"></span>
-          <span id="agent-sound-toggle-label">SOUND OFF</span>
+        <span id="agent-mode-operation" class="agent-mode-operation">Human control</span>
+        <button id="agent-sound-toggle" class="agent-sound-toggle" type="button" aria-label="Unmute agent behavior sounds" title="Unmute agent behavior sounds" aria-pressed="false" hidden>
+          <span class="agent-sound-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false">
+              <path class="agent-sound-speaker" d="M5 10v4h3l4 3V7l-4 3H5Z"></path>
+              <path class="agent-sound-wave" d="M15 9.5a4 4 0 0 1 0 5"></path>
+              <path class="agent-sound-wave" d="M17.8 7a8 8 0 0 1 0 10"></path>
+              <path class="agent-sound-mute" d="m15.5 9.5 5 5m0-5-5 5"></path>
+            </svg>
+          </span>
+          <span id="agent-sound-toggle-label" class="sr-only">Sound off</span>
         </button>
       </div>
     </section>
     <div id="agent-mode-live" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+
+    <!-- Query-gated local preview surface: ?webmcp_debug=1 -->
+    <button id="agent-debug-trigger" class="agent-debug-trigger" type="button" hidden>Agent debug</button>
+    <aside id="agent-debug-panel" class="agent-debug-panel" aria-label="Agent behavior debug panel" hidden>
+      <div class="agent-debug-header">
+        <span class="agent-debug-title">Agent debug</span>
+        <button id="agent-debug-close" class="agent-debug-close" type="button" aria-label="Close agent debug panel">×</button>
+      </div>
+      <p id="agent-debug-status" class="agent-debug-status">Human Mode</p>
+      <div class="agent-debug-actions">
+        <button class="agent-debug-action agent-debug-action-primary" type="button" data-agent-debug-action="sequence">Run sequence</button>
+        <button class="agent-debug-action" type="button" data-agent-debug-action="start">Start</button>
+        <button class="agent-debug-action" type="button" data-agent-debug-action="thinking">Thinking</button>
+        <button class="agent-debug-action" type="button" data-agent-debug-action="digging">Digging</button>
+        <button class="agent-debug-action" type="button" data-agent-debug-action="searching">Searching</button>
+        <button class="agent-debug-action" type="button" data-agent-debug-action="focus">Focus picks</button>
+        <button class="agent-debug-action agent-debug-action-return" type="button" data-agent-debug-action="return">Return to human</button>
+      </div>
+      <p class="agent-debug-note">Local preview only. Checkout stays human-controlled.</p>
+    </aside>
 
     <!-- Active Crate Controls (Unified Glassy Container) -->
     <div id="crate-navigation" class="crate-navigation">
@@ -565,7 +589,7 @@
 
   <!-- Three.js Local Script Loading -->
   <script type="module" src="/crate/crate.js?v=202607241539"></script>
-  <script type="module" src="/crate/webmcp.js?v=20260826-webmcp-m3"></script>
+  <script type="module" src="/crate/webmcp.js?v=20260826-webmcp-m4"></script>
   <script>
     // Inline failsafe script for loading stuck / script crash
     setTimeout(function() {

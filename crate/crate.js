@@ -245,11 +245,17 @@ function clearAgentFocusRecords() {
 function syncAgentFocusVisuals() {
   const update = rec => {
     const frontMaterial = rec?.mesh?.material?.[4];
-    if (!frontMaterial?.emissive) return;
+    if (!frontMaterial) return;
     const recordId = rec.recordId || rec.slug;
     const isFocused = recordId && agentFocusRecordIds.has(recordId);
-    frontMaterial.emissive.setHex(isFocused ? 0x064a06 : 0x000000);
-    frontMaterial.emissiveIntensity = isFocused ? 0.55 : 0;
+    // Focus is intentionally stored on the sleeve for future spatial cues,
+    // but never recolours the cover or vinyl. The agent presence belongs in
+    // the ambient aura around the crate, not inside the artwork.
+    rec.mesh.userData.agentFocused = Boolean(isFocused);
+    if (frontMaterial.emissive) {
+      frontMaterial.emissive.setHex(0x000000);
+      frontMaterial.emissiveIntensity = 0;
+    }
   };
 
   recordsData.forEach(update);

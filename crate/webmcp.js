@@ -13,20 +13,22 @@ import { buildCollectionStats, buildMusicDNA, getRecordId, scoreCatalog } from '
 
 const MAX_TOOL_OUTPUT_RECORDS = 12;
 const ACTIVE_STATES = new Set(['loading', 'active', 'busy', 'standby']);
+const DEBUG_QUERY_KEYS = ['webmcp_debug', 'agent_debug'];
+const SESSION_HANDSHAKE_MS = 280;
 const AGENT_OPERATION_LABELS = {
-  human: 'HUMAN CONTROL',
-  loading: 'CONNECTING...',
-  listening: 'LISTENING...',
-  thinking: 'THINKING...',
-  orienting: 'ORIENTING...',
-  searching: 'SEARCHING...',
-  digging: 'DIGGING...',
-  focusing: 'MOVING PICKS...',
-  inspecting: 'INSPECTING...',
-  curating: 'CURATING...',
-  preparing: 'PREPARING REVIEW...',
-  human_override: 'HUMAN OVERRIDE',
-  returning: 'RELEASING...'
+  human: 'Human control',
+  loading: 'Connecting',
+  listening: 'Listening',
+  thinking: 'Thinking',
+  orienting: 'Orienting',
+  searching: 'Searching',
+  digging: 'Digging',
+  focusing: 'Moving picks',
+  inspecting: 'Inspecting',
+  curating: 'Curating',
+  preparing: 'Preparing review',
+  human_override: 'Human override',
+  returning: 'Releasing'
 };
 const RETURN_FOCUS_CLEAR_MS = 560;
 const RETURN_TO_HUMAN_MS = 960;
@@ -40,6 +42,7 @@ let sessionStartedAt = null;
 let returnTransitionId = 0;
 let agentSoundEnabled = false;
 let agentAudioContext = null;
+let debugActionPromise = null;
 
 function dispatch(name, detail = {}) {
   window.dispatchEvent(new CustomEvent(name, { detail }));
@@ -81,7 +84,11 @@ function updateSoundControl() {
     'aria-label',
     agentSoundEnabled ? 'Mute agent behavior sounds' : 'Unmute agent behavior sounds'
   );
-  if (toggleLabel) toggleLabel.textContent = agentSoundEnabled ? 'SOUND ON' : 'SOUND OFF';
+  toggle.setAttribute(
+    'title',
+    agentSoundEnabled ? 'Mute agent behavior sounds' : 'Unmute agent behavior sounds'
+  );
+  if (toggleLabel) toggleLabel.textContent = agentSoundEnabled ? 'Sound on' : 'Sound off';
 }
 
 function getAgentAudioContext() {
@@ -166,27 +173,28 @@ function setAgentState(state, detail = {}) {
   const live = document.getElementById('agent-mode-live');
   const labels = {
     human: 'Human Mode',
-    loading: 'Agent Mode Loading...',
+    loading: 'Agent Mode Loading…',
     active: 'Agent Mode Active',
-    busy: 'Agent Mode Thinking...',
-    standby: 'Agent Mode Listening...',
+    busy: 'Agent Mode Thinking…',
+    standby: 'Agent Mode Listening',
     override: 'Human Mode Override',
-    returning: 'Return to Human Mode'
+    returning: 'Returning to Human Mode'
   };
   const details = {
-    human: 'WEBMCP // DORMANT',
-    loading: 'CONNECTING TO PAGE TOOLS',
-    active: 'SYNTHETIC CURATOR // READY',
-    busy: detail.text || 'READING THE CRATE',
-    standby: 'WAITING FOR THE NEXT DIRECTION',
-    override: 'HUMAN INPUT HAS PRIORITY',
-    returning: 'RETURNING THE CRATE TO HUMAN HANDS'
+    human: 'Ready for your selection',
+    loading: 'Connecting to the crate',
+    active: 'Ready to curate',
+    busy: detail.text || 'Reading the crate',
+    standby: 'Waiting for direction',
+    override: 'Human input has priority',
+    returning: 'Returning control'
   };
   const operationLabel = AGENT_OPERATION_LABELS[agentOperation] || AGENT_OPERATION_LABELS.thinking;
 
   if (hud) {
     hud.dataset.state = state;
     hud.dataset.operation = agentOperation;
+    hud.setAttribute('aria-busy', String(state === 'loading' || state === 'busy'));
   }
   if (label) label.textContent = labels[state] || labels.human;
   if (detailEl) detailEl.textContent = detail.text || details[state] || '';
@@ -272,6 +280,185 @@ async function withAgentActivity(text, work) {
   }
 }
 
+async function startCuratorSession(api, intent = '') {
+  sessionStartedAt = new Date().toISOString();
+  setAgentState('loading', { text: 'Connecting to the crate', operation: 'loading' });
+  const transitionId = returnTransitionId;
+
+  // Keep the first state on screen for one short paint window. This gives the
+  // host agent's own "controlling" affordance a chance to appear alongside
+  // the page-level loading signal without making the handshake feel slow.
+  await Promise.all([nextPaint(), wait(SESSION_HANDSHAKE_MS)]);
+  if (transitionId !== returnTransitionId) {
+    return resultError('SESSION_TRANSITION_INTERRUPTED', 'The curator session was interrupted before the crate became ready.');
+  }
+
+  setAgentState('active', { operation: 'listening' });
+  return {
+    ok: true,
+    agent_mode: 'active',
+    session_started_at: sessionStartedAt,
+    intent: trimText(intent, 400) || null,
+    ...api.status(),
+    next_step: 'Use search_catalog for exact metadata search or dig_by_descriptor for Song DNA metadata matching.'
+  };
+}
+
+async function returnToHumanMode(api) {
+  const transitionId = ++returnTransitionId;
+  setAgentState('returning', {
+    text: 'Returning control',
+    operation: 'returning'
+  });
+  await nextPaint();
+  await wait(RETURN_FOCUS_CLEAR_MS);
+  if (transitionId !== returnTransitionId) {
+    return resultError('SESSION_TRANSITION_INTERRUPTED', 'The return to Human Mode was interrupted by a new curator session.');
+  }
+  api.clearAgentFocus();
+  sessionStartedAt = null;
+  await wait(Math.max(0, RETURN_TO_HUMAN_MS - RETURN_FOCUS_CLEAR_MS));
+  if (transitionId !== returnTransitionId) {
+    return resultError('SESSION_TRANSITION_INTERRUPTED', 'The return to Human Mode was interrupted by a new curator session.');
+  }
+  setAgentState('human', { operation: 'human' });
+  return {
+    ok: true,
+    agent_mode: 'human',
+    transition: 'soft_return',
+    crate_unchanged: true
+  };
+}
+
+function isDebugModeEnabled() {
+  const params = new URLSearchParams(window.location.search);
+  return DEBUG_QUERY_KEYS.some(key => ['1', 'true', 'on'].includes(String(params.get(key) || '').toLowerCase()));
+}
+
+function getDebugSampleIds(api) {
+  return (api.getMasterCatalog?.() || [])
+    .slice(0, 3)
+    .map(item => getRecordId(item))
+    .filter(Boolean);
+}
+
+async function ensureDebugSession(api) {
+  if (agentState === 'human' || agentState === 'override') {
+    await startCuratorSession(api, 'local visual debug');
+  }
+}
+
+async function runDebugAction(api, action) {
+  if (action === 'start') {
+    return startCuratorSession(api, 'local visual debug');
+  }
+
+  if (action === 'return') {
+    return returnToHumanMode(api);
+  }
+
+  await ensureDebugSession(api);
+
+  if (action === 'sequence') {
+    await withAgentActivity('Thinking about the request', () => wait(760));
+    return withAgentActivity('Digging through Song DNA', async () => {
+      const result = scoreCatalog(getCatalog(), 'warm house groove for a late night drive', { maxResults: 5 });
+      const ids = result.matches.map(match => match.record_id);
+      if (ids.length > 0) api.focusRecords(ids);
+      await wait(920);
+      return { ok: true, debug: true, result_count: result.matches.length, focus_record_ids: ids };
+    });
+  }
+
+  if (action === 'thinking') {
+    return withAgentActivity('Reading the crate', () => wait(900));
+  }
+
+  if (action === 'digging') {
+    return withAgentActivity('Digging through Song DNA', async () => {
+      const result = scoreCatalog(getCatalog(), 'warm house groove for a late night drive', { maxResults: 5 });
+      const ids = result.matches.map(match => match.record_id);
+      if (ids.length > 0) api.focusRecords(ids);
+      await wait(900);
+      return { ok: true, debug: true, result_count: result.matches.length, focus_record_ids: ids };
+    });
+  }
+
+  if (action === 'searching') {
+    return withAgentActivity('Searching the crate', async () => {
+      const previousQuery = window.getCurrentSearchQuery?.() || '';
+      api.setSearchQuery('house');
+      await wait(900);
+      api.setSearchQuery(previousQuery);
+      return { ok: true, debug: true, query: 'house', restored_query: previousQuery };
+    });
+  }
+
+  if (action === 'focus') {
+    return withAgentActivity('Moving selected records', async () => {
+      const ids = getDebugSampleIds(api);
+      if (ids.length > 0) api.focusRecords(ids);
+      await wait(900);
+      return { ok: true, debug: true, focus_record_ids: ids };
+    });
+  }
+
+  return resultError('UNKNOWN_DEBUG_ACTION', `Unknown debug action: ${action}`);
+}
+
+function updateDebugPanel() {
+  const status = document.getElementById('agent-debug-status');
+  if (!status) return;
+  const label = document.getElementById('agent-mode-label')?.textContent || 'Human Mode';
+  const operation = document.getElementById('agent-mode-operation')?.textContent || 'Human control';
+  status.textContent = `${label} · ${operation}`;
+}
+
+function installDebugPanel(api) {
+  if (!isDebugModeEnabled()) return;
+
+  const trigger = document.getElementById('agent-debug-trigger');
+  const panel = document.getElementById('agent-debug-panel');
+  const close = document.getElementById('agent-debug-close');
+  const status = document.getElementById('agent-debug-status');
+  const actions = [...document.querySelectorAll('[data-agent-debug-action]')];
+  if (!trigger || !panel || !close || !status || actions.length === 0) return;
+
+  document.documentElement.dataset.agentDebug = 'enabled';
+  panel.hidden = false;
+  trigger.hidden = true;
+
+  const setOpen = open => {
+    panel.hidden = !open;
+    trigger.hidden = open;
+  };
+
+  trigger.addEventListener('click', () => setOpen(true));
+  close.addEventListener('click', () => setOpen(false));
+  window.addEventListener('seph-agent-state', updateDebugPanel);
+  window.addEventListener('seph-agent-focus', updateDebugPanel);
+
+  actions.forEach(button => {
+    button.addEventListener('click', () => {
+      if (debugActionPromise) return;
+      const action = button.dataset.agentDebugAction;
+      actions.forEach(item => { item.disabled = true; });
+      debugActionPromise = runDebugAction(api, action)
+        .catch(error => {
+          console.warn('[WebMCP debug] Action failed:', error);
+          status.textContent = 'Debug action failed';
+        })
+        .finally(() => {
+          debugActionPromise = null;
+          actions.forEach(item => { item.disabled = false; });
+          updateDebugPanel();
+        });
+    });
+  });
+
+  updateDebugPanel();
+}
+
 function getCatalog() {
   return getCrateApi()?.getMasterCatalog?.() || [];
 }
@@ -322,7 +509,7 @@ function installHumanOverride() {
   const onHumanInput = event => {
     if (!ACTIVE_STATES.has(agentState)) return;
     if (event.isTrusted === false) return;
-    if (event.target?.closest?.('#agent-mode-hud')) return;
+    if (event.target?.closest?.('#agent-mode-hud, #agent-debug-panel, #agent-debug-trigger')) return;
     setAgentState('override');
     dispatch('seph-agent-focus', { record_ids: [], source: 'human_override' });
   };
@@ -376,22 +563,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
     },
     annotations: uiMutation,
     async execute(input = {}) {
-      return (async () => {
-        returnTransitionId += 1;
-        sessionStartedAt = new Date().toISOString();
-        setAgentState('loading', { text: 'CONNECTING TO PAGE TOOLS', operation: 'loading' });
-        await nextPaint();
-        setAgentState('active', { operation: 'listening' });
-        const status = api.status();
-        return {
-          ok: true,
-          agent_mode: 'active',
-          session_started_at: sessionStartedAt,
-          intent: trimText(input.intent, 400) || null,
-          ...status,
-          next_step: 'Use search_catalog for exact metadata search or dig_by_descriptor for Song DNA metadata matching.'
-        };
-      })();
+      return startCuratorSession(api, input.intent);
     }
   });
 
@@ -402,7 +574,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: readOnly,
     async execute() {
-      return withAgentActivity('ORIENTING IN THE COLLECTION', async () => ({
+      return withAgentActivity('Orienting in the collection', async () => ({
         ok: true,
         ...buildCollectionStats(getCatalog())
       }));
@@ -424,7 +596,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
     },
     annotations: uiMutation,
     async execute(input = {}) {
-      return withAgentActivity('SEARCHING THE CRATE', async () => {
+      return withAgentActivity('Searching the crate', async () => {
         const query = trimText(input.query, 200);
         if (!query) return resultError('INVALID_QUERY', 'A non-empty catalog query is required.');
         const results = searchCatalog(query, input.max_results);
@@ -457,7 +629,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
     },
     annotations: uiMutation,
     async execute(input = {}) {
-      return withAgentActivity('DIGGING THROUGH SONG DNA', async () => {
+      return withAgentActivity('Digging through Song DNA', async () => {
         const descriptor = trimText(input.descriptor, 400);
         if (!descriptor) return resultError('INVALID_DESCRIPTOR', 'A non-empty descriptor is required.');
         const result = scoreCatalog(getCatalog(), descriptor, {
@@ -480,7 +652,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   await registerTool(modelContext, {
     name: 'focus_records',
     title: 'Focus records in crate',
-    description: 'Moves the first requested record to the front of the visible crate and gives the requested records the agent-curated visual treatment.',
+    description: 'Moves the first requested record to the front of the visible crate and records the agent focus without recolouring the artwork.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -492,7 +664,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
     },
     annotations: uiMutation,
     async execute(input = {}) {
-      return withAgentActivity('BRINGING PICKS TO THE FRONT', async () => {
+      return withAgentActivity('Moving selected records', async () => {
         const ids = [...new Set((input.record_ids || []).map(value => trimText(value, 160)).filter(Boolean))];
         if (ids.length === 0) return resultError('INVALID_RECORD_IDS', 'At least one record_id is required.');
         const focused = api.focusRecords(ids);
@@ -514,7 +686,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
     },
     annotations: { ...readOnly, readOnlyHint: false },
     async execute(input = {}) {
-      return withAgentActivity('INSPECTING THE RECORD', async () => {
+      return withAgentActivity('Inspecting the record', async () => {
         const item = findItem(input.record_id);
         if (!item) return resultError('RECORD_NOT_FOUND', 'The requested record is not in the loaded catalog.');
         const focused = api.focusRecord(getRecordId(item));
@@ -543,7 +715,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
     },
     annotations: uiMutation,
     async execute(input = {}) {
-      return withAgentActivity(input.action === 'remove' ? 'REMOVING FROM MY CRATE' : 'ADDING TO MY CRATE', async () => {
+      return withAgentActivity(input.action === 'remove' ? 'Removing from My Crate' : 'Adding to My Crate', async () => {
         if (!['add', 'remove'].includes(input.action)) {
           return resultError('INVALID_ACTION', 'Action must be add or remove.');
         }
@@ -561,7 +733,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: uiMutation,
     async execute() {
-      return withAgentActivity('PREPARING A HUMAN CHECKOUT REVIEW', async () => ({
+      return withAgentActivity('Preparing a human checkout review', async () => ({
         ok: true,
         ...api.prepareCheckout(),
         human_confirmation_required: true,
@@ -577,29 +749,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: uiMutation,
     async execute() {
-      const transitionId = ++returnTransitionId;
-      setAgentState('returning', {
-        text: 'RETURNING THE CRATE TO HUMAN HANDS',
-        operation: 'returning'
-      });
-      await nextPaint();
-      await wait(RETURN_FOCUS_CLEAR_MS);
-      if (transitionId !== returnTransitionId) {
-        return resultError('SESSION_TRANSITION_INTERRUPTED', 'The return to Human Mode was interrupted by a new agent session.');
-      }
-      api.clearAgentFocus();
-      sessionStartedAt = null;
-      await wait(Math.max(0, RETURN_TO_HUMAN_MS - RETURN_FOCUS_CLEAR_MS));
-      if (transitionId !== returnTransitionId) {
-        return resultError('SESSION_TRANSITION_INTERRUPTED', 'The return to Human Mode was interrupted by a new agent session.');
-      }
-      setAgentState('human', { operation: 'human' });
-      return {
-        ok: true,
-        agent_mode: 'human',
-        transition: 'soft_return',
-        crate_unchanged: true
-      };
+      return returnToHumanMode(api);
     }
   });
 
@@ -627,6 +777,7 @@ async function boot() {
   installAgentSoundControl();
   try {
     const api = await waitForCrateApi();
+    installDebugPanel(api);
     const modelContext = getAvailableModelContext();
     if (!modelContext.context) {
       document.documentElement.dataset.webmcp = 'unsupported';

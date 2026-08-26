@@ -86,7 +86,7 @@ input, textarea, [contenteditable="true"], .postit-code, .postit-text, .postit-p
 }
 
 .agent-mode-hud {
-  --agent-color: #03ff00;
+  --agent-color: #8acb92;
   --agent-text: var(--text-primary);
   --agent-muted: var(--text-secondary);
   position: fixed;
@@ -96,50 +96,48 @@ input, textarea, [contenteditable="true"], .postit-code, .postit-text, .postit-p
   /* Stay above the detail drawer so agent state remains visible while a
      tool opens or inspects a record. */
   z-index: 1200;
-  width: min(248px, calc(100vw - 36px));
-  min-height: 76px;
-  padding: 14px 16px 13px;
-  border: 1px solid rgba(255, 255, 255, 0.13);
-  border-radius: 26px 30px 30px 18px;
+  width: min(224px, calc(100vw - 36px));
+  min-height: 0;
+  padding: 17px 18px 15px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 18px;
   background:
-    radial-gradient(circle at 10% 10%, rgba(3, 255, 0, 0.13), transparent 34%),
-    linear-gradient(140deg, rgba(255, 255, 255, 0.09), rgba(5, 5, 5, 0.64));
-  box-shadow: 0 0 0 1px rgba(3, 255, 0, 0.03), 0 18px 45px rgba(0, 0, 0, 0.18);
-  backdrop-filter: blur(14px) saturate(130%);
-  -webkit-backdrop-filter: blur(14px) saturate(130%);
+    linear-gradient(145deg, rgba(255, 255, 255, 0.13), rgba(5, 5, 5, 0.58));
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.16), 0 0 0 1px rgba(255, 255, 255, 0.025);
+  backdrop-filter: blur(18px) saturate(115%);
+  -webkit-backdrop-filter: blur(18px) saturate(115%);
   opacity: 0;
-  transform: translate3d(-22px, -50%, 0) scale(0.94);
+  transform: translate3d(-16px, -50%, 0) scale(0.96);
   pointer-events: none !important;
   isolation: isolate;
   overflow: visible;
   transition: opacity 0.55s cubic-bezier(0.16, 1, 0.3, 1), transform 0.7s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.7s ease, border-color 0.55s ease;
+  text-align: center;
 }
 
 .agent-mode-hud::before {
   content: '';
   position: absolute;
-  inset: -24px -34px;
+  inset: -24px -30px;
   z-index: -2;
   border-radius: 50%;
-  background: radial-gradient(ellipse at center, rgba(3, 255, 0, 0.14), rgba(3, 255, 0, 0.04) 38%, transparent 72%);
-  filter: blur(20px);
+  background: radial-gradient(ellipse at center, rgba(138, 203, 146, 0.12), transparent 68%);
+  filter: blur(18px);
   opacity: 0;
-  transform: scale(0.72);
+  transform: scale(0.82);
   transition: opacity 0.8s ease, transform 1s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .agent-mode-hud::after {
   content: '';
   position: absolute;
-  inset: 5px;
+  inset: -6px;
   z-index: -1;
-  border: 1px solid rgba(3, 255, 0, 0.2);
-  border-left-color: transparent;
-  border-bottom-color: transparent;
-  border-radius: inherit;
-  opacity: 0.45;
-  transform: rotate(-9deg);
-  animation: agentHudOrbit 14s linear infinite;
+  border: 1px solid rgba(138, 203, 146, 0.16);
+  border-radius: 22px;
+  opacity: 0.35;
+  transform: scale(0.98);
+  transition: opacity 0.6s ease, transform 0.7s ease;
   pointer-events: none;
 }
 
@@ -160,8 +158,8 @@ html[data-agent-mode="override"] .agent-mode-hud {
 html[data-agent-mode="loading"] .agent-mode-hud,
 html[data-agent-mode="busy"] .agent-mode-hud,
 html[data-agent-mode="returning"] .agent-mode-hud {
-  border-color: rgba(3, 255, 0, 0.35);
-  box-shadow: 0 0 28px rgba(3, 255, 0, 0.08), 0 18px 45px rgba(0, 0, 0, 0.18);
+  border-color: rgba(138, 203, 146, 0.28);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.16), 0 0 26px rgba(138, 203, 146, 0.08);
 }
 
 html[data-agent-mode="loading"] .agent-mode-hud::before,
@@ -175,20 +173,13 @@ html[data-agent-mode="returning"] .agent-mode-hud::before {
 
 html[data-agent-mode="active"] .agent-mode-hud,
 html[data-agent-mode="standby"] .agent-mode-hud {
-  border-color: rgba(3, 255, 0, 0.48);
-  box-shadow: 0 0 34px rgba(3, 255, 0, 0.11), 0 18px 45px rgba(0, 0, 0, 0.18);
+  border-color: rgba(138, 203, 146, 0.3);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.16), 0 0 30px rgba(138, 203, 146, 0.1);
 }
 
 html[data-agent-mode="override"] .agent-mode-hud {
-  --agent-color: #f5f5f7;
+  --agent-color: #d8d8dc;
   border-color: rgba(245, 245, 247, 0.3);
-}
-
-.agent-mode-hud-line {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  margin-bottom: 8px;
 }
 
 .agent-mode-sigil {
@@ -197,39 +188,28 @@ html[data-agent-mode="override"] .agent-mode-hud {
   align-items: center;
   justify-content: center;
   gap: 7px;
-  width: 28px;
-  height: 14px;
-  flex: 0 0 28px;
-  border-radius: 50%;
+  width: 24px;
+  height: 8px;
+  margin: 0 auto 13px;
+  border-radius: 999px;
   opacity: 0.9;
-}
-
-.agent-mode-sigil::before {
-  content: '';
-  position: absolute;
-  inset: 2px -2px;
-  border-top: 1px solid rgba(3, 255, 0, 0.32);
-  border-bottom: 1px solid rgba(3, 255, 0, 0.12);
-  border-radius: 50%;
-  transform: rotate(-12deg);
-  opacity: 0.8;
 }
 
 .agent-eye {
   position: relative;
-  width: 5px;
-  height: 5px;
-  flex: 0 0 5px;
+  width: 4px;
+  height: 4px;
+  flex: 0 0 4px;
   border-radius: 50%;
   background: var(--agent-color);
-  box-shadow: 0 0 9px var(--agent-color), 0 0 18px rgba(3, 255, 0, 0.5);
+  box-shadow: 0 0 7px var(--agent-color), 0 0 13px rgba(138, 203, 146, 0.34);
   transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.35s ease;
 }
 
 .agent-eye::after {
   content: '';
   position: absolute;
-  inset: -3px;
+  inset: -2px;
   border: 1px solid var(--agent-color);
   border-radius: 50%;
   opacity: 0.22;
@@ -274,38 +254,29 @@ html[data-agent-operation="returning"] .agent-eye {
   50% { transform: scale(1.04); opacity: 1; }
 }
 
-@keyframes agentHudOrbit {
-  to { transform: rotate(351deg); }
-}
-
-.agent-mode-kicker,
 .agent-mode-detail,
 .agent-mode-operation,
 .agent-sound-toggle {
   font-family: var(--font-mono);
-  font-size: 0.58rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.agent-mode-kicker {
-  color: var(--agent-muted);
+  font-size: 0.56rem;
+  letter-spacing: 0.08em;
 }
 
 .agent-mode-label {
   display: block;
   color: var(--agent-text);
   font-family: var(--font-sans);
-  font-size: 0.84rem;
-  font-weight: 500;
-  letter-spacing: 0.12em;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.13em;
   line-height: 1.35;
   text-transform: uppercase;
 }
 
 .agent-mode-detail {
   display: block;
-  margin-top: 4px;
+  min-height: 1.4em;
+  margin-top: 6px;
   color: var(--agent-muted);
   line-height: 1.4;
 }
@@ -313,62 +284,224 @@ html[data-agent-operation="returning"] .agent-eye {
 .agent-mode-footer {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 10px;
-  min-height: 16px;
-  margin-top: 8px;
+  min-height: 28px;
+  margin-top: 10px;
 }
 
 .agent-mode-operation {
-  flex: 1;
   color: var(--agent-color);
-  font-size: 0.52rem;
+  font-size: 0.55rem;
   line-height: 1.2;
+  text-transform: uppercase;
 }
 
 .agent-sound-toggle {
-  display: inline-flex;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
   align-items: center;
-  gap: 5px;
   margin: 0;
-  padding: 2px 0;
-  border: 0;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.22);
   background: transparent;
   color: var(--agent-muted);
   cursor: pointer;
-  opacity: 0.7;
+  border-radius: 50%;
+  opacity: 0.92;
   pointer-events: auto !important;
-  transition: color 0.25s ease, opacity 0.25s ease;
+  transition: color 0.25s ease, opacity 0.25s ease, border-color 0.25s ease, background 0.25s ease;
 }
 
 .agent-sound-toggle:hover,
 .agent-sound-toggle:focus-visible {
   color: var(--agent-color);
+  border-color: currentColor;
+  background: rgba(255, 255, 255, 0.06);
   opacity: 1;
 }
 
 .agent-sound-toggle:focus-visible {
   outline: 1px solid var(--agent-color);
   outline-offset: 4px;
-  border-radius: 3px;
-}
-
-.agent-sound-toggle-mark {
-  width: 6px;
-  height: 6px;
-  flex: 0 0 6px;
-  border: 1px solid currentColor;
   border-radius: 50%;
-  box-shadow: 0 0 7px currentColor;
 }
 
-html[data-agent-sound="on"] .agent-sound-toggle-mark {
-  background: var(--agent-color);
+.agent-sound-icon,
+.agent-sound-icon svg {
+  display: block;
+  width: 15px;
+  height: 15px;
+}
+
+.agent-sound-icon svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+}
+
+.agent-sound-wave,
+.agent-sound-mute {
+  display: none;
+}
+
+html[data-agent-sound="on"] .agent-sound-wave {
+  display: block;
+}
+
+html[data-agent-sound="off"] .agent-sound-mute {
+  display: block;
+}
+
+.agent-debug-trigger,
+.agent-debug-panel {
+  font-family: var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.agent-debug-trigger {
+  position: fixed;
+  left: 22px;
+  bottom: 22px;
+  z-index: 1300;
+  padding: 8px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(13, 13, 16, 0.58);
+  color: var(--text-secondary);
+  font-size: 0.56rem;
+  cursor: pointer;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  transition: color 0.25s ease, border-color 0.25s ease, background 0.25s ease;
+}
+
+.agent-debug-trigger:hover,
+.agent-debug-trigger:focus-visible {
+  border-color: var(--agent-color, #8acb92);
+  color: var(--text-primary);
+  background: rgba(13, 13, 16, 0.76);
+}
+
+.agent-debug-trigger:focus-visible,
+.agent-debug-close:focus-visible,
+.agent-debug-action:focus-visible {
+  outline: 1px solid var(--agent-color, #8acb92);
+  outline-offset: 3px;
+}
+
+.agent-debug-panel {
+  position: fixed;
+  left: 22px;
+  bottom: 22px;
+  z-index: 1301;
+  width: min(252px, calc(100vw - 44px));
+  padding: 15px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 16px;
+  background: rgba(13, 13, 16, 0.78);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.22);
+  color: var(--text-primary);
+  backdrop-filter: blur(18px) saturate(120%);
+  -webkit-backdrop-filter: blur(18px) saturate(120%);
+}
+
+.agent-debug-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.agent-debug-title {
+  color: var(--agent-color, #8acb92);
+  font-size: 0.58rem;
+}
+
+.agent-debug-close {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.agent-debug-status {
+  min-height: 2.8em;
+  margin: 14px 0 12px;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.76rem;
+  letter-spacing: 0.1em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.agent-debug-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.agent-debug-action {
+  min-height: 30px;
+  padding: 6px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.5rem;
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease, opacity 0.2s ease;
+}
+
+.agent-debug-action:hover,
+.agent-debug-action:focus-visible {
+  border-color: var(--agent-color, #8acb92);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.agent-debug-action-primary {
+  grid-column: 1 / -1;
+  border-color: rgba(138, 203, 146, 0.32);
+  color: var(--agent-color, #8acb92);
+}
+
+.agent-debug-action-return {
+  grid-column: 1 / -1;
+}
+
+.agent-debug-action:disabled {
+  cursor: wait;
+  opacity: 0.45;
+}
+
+.agent-debug-note {
+  margin: 13px 0 0;
+  color: var(--text-dim);
+  font-size: 0.48rem;
+  line-height: 1.5;
+  text-transform: none;
 }
 
 /* A restrained ambient response behind the existing WebGL scene. The actual
    crate lift and spotlight are driven in crate.js so the 2D fallback remains
    safe when WebGL is unavailable. */
 #canvas-container {
+  --agent-aura-soft: rgba(138, 203, 146, 0.08);
+  --agent-aura-line: rgba(138, 203, 146, 0.16);
   transform-origin: 50% 50%;
   will-change: transform;
 }
@@ -376,28 +509,32 @@ html[data-agent-sound="on"] .agent-sound-toggle-mark {
 #canvas-container::before {
   content: '';
   position: absolute;
-  inset: 20% 22% 18%;
-  z-index: 0;
+  inset: 11% 23% 5%;
+  z-index: 2;
   pointer-events: none;
   border-radius: 50%;
-  background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.045), rgba(3, 255, 0, 0.07) 32%, transparent 72%);
-  filter: blur(36px);
+  background: var(--agent-aura-soft);
+  -webkit-mask: radial-gradient(ellipse at center, transparent 0 53%, #000 58% 65%, transparent 75%);
+  mask: radial-gradient(ellipse at center, transparent 0 53%, #000 58% 65%, transparent 75%);
+  filter: blur(15px);
   opacity: 0;
-  transform: scale(0.82);
+  transform: scale(0.9);
   transition: opacity 1s ease, transform 1.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 #canvas-container::after {
   content: '';
   position: absolute;
-  inset: 7% 12% 12%;
+  inset: 11% 23% 5%;
   z-index: 2;
   pointer-events: none;
   border-radius: 50%;
-  background: radial-gradient(ellipse at center, rgba(3, 255, 0, 0.085) 0%, rgba(3, 255, 0, 0.025) 38%, transparent 72%);
-  filter: blur(28px);
+  border: 1px solid var(--agent-aura-line);
+  background: transparent;
+  box-shadow: 0 0 44px var(--agent-aura-soft), 0 0 90px rgba(138, 203, 146, 0.035);
+  filter: blur(5px);
   opacity: 0;
-  transform: scale(0.9);
+  transform: scale(0.96);
   transition: opacity 0.9s ease, transform 1.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -1325,7 +1462,7 @@ html[data-agent-mode="returning"] #canvas-container {
     top: 82px;
     left: 50%;
     right: auto;
-    width: min(248px, calc(100vw - 32px));
+    width: min(224px, calc(100vw - 32px));
     min-width: 0;
     max-width: calc(100vw - 32px);
     transform: translate3d(-50%, -12px, 0) scale(0.94);
@@ -1338,6 +1475,17 @@ html[data-agent-mode="returning"] #canvas-container {
   html[data-agent-mode="returning"] .agent-mode-hud,
   html[data-agent-mode="override"] .agent-mode-hud {
     transform: translate3d(-50%, 0, 0) scale(1);
+  }
+
+  .agent-debug-trigger {
+    left: 16px;
+    bottom: 88px;
+  }
+
+  .agent-debug-panel {
+    left: 16px;
+    bottom: 88px;
+    width: min(252px, calc(100vw - 32px));
   }
 }
 
@@ -1377,7 +1525,6 @@ html[data-agent-mode="returning"] #canvas-container {
   }
 
   .agent-mode-sigil,
-  .agent-mode-sigil::before,
   .agent-mode-hud::after,
   html[data-agent-mode="loading"] .agent-mode-sigil,
   html[data-agent-mode="busy"] .agent-mode-sigil,
@@ -2976,24 +3123,72 @@ html[data-agent-mode="returning"] #canvas-container {
   }
 
   .agent-mode-hud {
-    --agent-color: #13831b;
+    --agent-color: #176b2a;
     --agent-text: #1d1d1f;
-    --agent-muted: #6e6e73;
-    border-color: rgba(19, 131, 27, 0.2);
+    --agent-muted: #636366;
+    border-color: rgba(0, 0, 0, 0.12);
     background:
-      radial-gradient(circle at 10% 10%, rgba(19, 131, 27, 0.1), transparent 34%),
-      linear-gradient(140deg, rgba(255, 255, 255, 0.8), rgba(245, 245, 247, 0.68));
-    box-shadow: 0 0 0 1px rgba(19, 131, 27, 0.03), 0 18px 45px rgba(0, 0, 0, 0.1);
+      linear-gradient(145deg, rgba(255, 255, 255, 0.88), rgba(245, 245, 247, 0.72));
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(0, 0, 0, 0.025);
   }
 
   .agent-mode-hud::before {
-    background: radial-gradient(ellipse at center, rgba(19, 131, 27, 0.12), rgba(19, 131, 27, 0.035) 38%, transparent 72%);
+    background: radial-gradient(ellipse at center, rgba(23, 107, 42, 0.1), transparent 68%);
   }
 
   .agent-mode-hud::after {
-    border-color: rgba(19, 131, 27, 0.18);
-    border-left-color: transparent;
-    border-bottom-color: transparent;
+    border-color: rgba(23, 107, 42, 0.18);
+  }
+
+  .agent-sound-toggle {
+    border-color: rgba(0, 0, 0, 0.16);
+  }
+
+  .agent-sound-toggle:hover,
+  .agent-sound-toggle:focus-visible {
+    background: rgba(0, 0, 0, 0.04);
+  }
+
+  .agent-debug-trigger,
+  .agent-debug-panel {
+    --agent-color: #176b2a;
+    border-color: rgba(0, 0, 0, 0.12);
+    background: rgba(255, 255, 255, 0.84);
+    color: #1d1d1f;
+  }
+
+  .agent-debug-trigger:hover,
+  .agent-debug-trigger:focus-visible {
+    background: rgba(255, 255, 255, 0.96);
+  }
+
+  .agent-debug-panel {
+    box-shadow: 0 18px 42px rgba(0, 0, 0, 0.12);
+  }
+
+  .agent-debug-close,
+  .agent-debug-action {
+    color: #636366;
+  }
+
+  .agent-debug-action {
+    border-color: rgba(0, 0, 0, 0.1);
+    background: rgba(0, 0, 0, 0.025);
+  }
+
+  .agent-debug-action:hover,
+  .agent-debug-action:focus-visible {
+    background: rgba(0, 0, 0, 0.05);
+    color: #1d1d1f;
+  }
+
+  .agent-debug-note {
+    color: #8a8a8f;
+  }
+
+  #canvas-container {
+    --agent-aura-soft: rgba(23, 107, 42, 0.06);
+    --agent-aura-line: rgba(23, 107, 42, 0.12);
   }
 
   .buy-button {
