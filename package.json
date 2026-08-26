@@ -16,6 +16,7 @@
     "site:deploy": "set -a; source .env.cloudflare.local; set +a; CLOUDFLARE_API_KEY=\"$CLOUDFLARE_GLOBAL_API_KEY\" npx wrangler deploy --config wrangler.site.toml",
     "site:demo:check": "node scripts/shop_smoke_check.mjs https://demo.sephmartin.com",
     "site:demo:surface-check": "node scripts/demo_surface_check.mjs https://demo.sephmartin.com",
+    "site:demo:webmcp-check": "node scripts/webmcp_surface_check.mjs https://demo.sephmartin.com",
     "site:demo:dry-run": "npx wrangler deploy --config wrangler.staging.toml --dry-run",
     "site:deploy:demo": "if test -f .env.cloudflare.local; then set -a; source .env.cloudflare.local; set +a; fi; if test -n \"$CLOUDFLARE_GLOBAL_API_KEY\"; then export CLOUDFLARE_API_KEY=\"$CLOUDFLARE_GLOBAL_API_KEY\"; fi; npx wrangler deploy --config wrangler.staging.toml",
     "shop:checkout-all": "node scripts/shop_checkout_all_smoke.mjs https://sephmartin.com",
