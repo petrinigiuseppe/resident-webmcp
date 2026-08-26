@@ -685,7 +685,7 @@ function installHumanOverride() {
     if (!ACTIVE_STATES.has(agentState)) return;
     if (debugActionPromise !== null) return;
     if (event.isTrusted === false) return;
-    if (event.target?.closest?.('#agent-mode-hud, #agent-debug-panel, #agent-debug-trigger, #details-panel, [data-agent-debug-action]')) return;
+    if (event.target?.closest?.('#agent-mode-hud, #mobile-agent-hint, #agent-debug-panel, #agent-debug-trigger, #details-panel, [data-agent-debug-action]')) return;
     setAgentState('override');
     dispatch('seph-agent-focus', { record_ids: [], source: 'human_override' });
   };
