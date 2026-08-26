@@ -116,8 +116,57 @@ function playAgentCue(state, operation) {
   const context = getAgentAudioContext();
   if (!context) return;
 
+  if (state === 'loading') {
+    const playActivation = () => {
+      if (!agentSoundEnabled) return;
+
+      const now = context.currentTime;
+      const master = context.createGain();
+      const filter = context.createBiquadFilter();
+      const delay = context.createDelay(1);
+      const tail = context.createGain();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(2200, now);
+      filter.Q.setValueAtTime(0.35, now);
+      master.gain.setValueAtTime(0.0001, now);
+      master.gain.exponentialRampToValueAtTime(0.018, now + 0.16);
+      master.gain.exponentialRampToValueAtTime(0.0001, now + 1.35);
+      delay.delayTime.setValueAtTime(0.24, now);
+      tail.gain.setValueAtTime(0.12, now);
+      master.connect(filter);
+      filter.connect(context.destination);
+      master.connect(delay);
+      delay.connect(tail);
+      tail.connect(context.destination);
+
+      [
+        { frequency: 261.63, detune: -4, type: 'sine', level: 0.72 },
+        { frequency: 392, detune: 3, type: 'sine', level: 0.38 },
+        { frequency: 523.25, detune: -2, type: 'triangle', level: 0.14 }
+      ].forEach(voice => {
+        const oscillator = context.createOscillator();
+        const voiceGain = context.createGain();
+        oscillator.type = voice.type;
+        oscillator.detune.setValueAtTime(voice.detune, now);
+        oscillator.frequency.setValueAtTime(voice.frequency * 0.985, now);
+        oscillator.frequency.exponentialRampToValueAtTime(voice.frequency, now + 0.86);
+        voiceGain.gain.setValueAtTime(voice.level, now);
+        oscillator.connect(voiceGain);
+        voiceGain.connect(master);
+        oscillator.start(now);
+        oscillator.stop(now + 1.4);
+      });
+    };
+
+    if (context.state === 'suspended') {
+      context.resume().then(playActivation).catch(() => {});
+    } else {
+      playActivation();
+    }
+    return;
+  }
+
   const cues = {
-    loading: { frequency: 174, duration: 0.18, gain: 0.022, type: 'sine' },
     active: { frequency: 246, duration: 0.24, gain: 0.018, type: 'sine' },
     busy: { frequency: operation === 'digging' ? 132 : 158, duration: 0.12, gain: 0.015, type: 'triangle' },
     returning: { frequency: 196, duration: 0.34, gain: 0.014, type: 'sine', slide: 156 }
@@ -265,7 +314,11 @@ function setAgentState(state, detail = {}) {
   }
   if (label) label.textContent = labels[state] || labels.human;
   if (detailEl) detailEl.textContent = hudDetail;
-  if (mobileLabel) mobileLabel.textContent = labels[state] || labels.human;
+  if (mobileLabel) {
+    mobileLabel.textContent = state === 'human' || state === 'override'
+      ? labels[state] || labels.human
+      : `${labels[state] || labels.loading} · ${hudOperation}`;
+  }
   updateAgentPresenceVisibility();
   if (live && state !== 'human') live.textContent = `${labels[state] || ''} ${hudOperation}`.trim();
   updateSoundControl();
