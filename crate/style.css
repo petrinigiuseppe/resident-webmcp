@@ -671,8 +671,8 @@ html[data-agent-intro="active"] .agent-mode-intro {
   inset: var(--agent-frame-inset);
   z-index: 2;
   display: block;
-  width: auto;
-  height: auto;
+  width: 100%;
+  height: 100%;
   overflow: visible;
   pointer-events: none;
   color: var(--agent-frame-color);
