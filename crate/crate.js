@@ -3595,7 +3595,6 @@ function updateMyCrateBadge() {
 }
 
 function updateUIControlsState() {
-  const localItems = readLocalCrateItems();
   const checkoutSummary = getCheckoutSummary();
   const hasPersonal = checkoutSummary.checkout_available;
   
