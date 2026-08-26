@@ -15,7 +15,7 @@ const MAX_TOOL_OUTPUT_RECORDS = 12;
 const ACTIVE_STATES = new Set(['loading', 'active', 'busy', 'standby']);
 const DEBUG_QUERY_KEYS = ['webmcp_debug', 'agent_debug'];
 const SESSION_HANDSHAKE_MS = 280;
-const AGENT_INTRO_MS = 1500;
+const AGENT_INTRO_MS = 2400;
 const DIG_PREVIEW_MS = 860;
 const DRAG_MARGIN_PX = 12;
 const AGENT_OPERATION_LABELS = {
@@ -120,6 +120,7 @@ function playAgentCue(state, operation) {
   if (!context) return;
 
   if (state === 'loading') {
+    const introDuration = AGENT_INTRO_MS / 1000;
     const playActivation = () => {
       if (!agentSoundEnabled) {
         pendingAgentActivationCue = false;
@@ -136,10 +137,10 @@ function playAgentCue(state, operation) {
       filter.frequency.setValueAtTime(2200, now);
       filter.Q.setValueAtTime(0.35, now);
       master.gain.setValueAtTime(0.0001, now);
-      master.gain.exponentialRampToValueAtTime(0.018, now + 0.16);
-      master.gain.exponentialRampToValueAtTime(0.0001, now + 1.35);
-      delay.delayTime.setValueAtTime(0.24, now);
-      tail.gain.setValueAtTime(0.12, now);
+      master.gain.exponentialRampToValueAtTime(0.016, now + 0.34);
+      master.gain.exponentialRampToValueAtTime(0.0001, now + introDuration - 0.16);
+      delay.delayTime.setValueAtTime(0.38, now);
+      tail.gain.setValueAtTime(0.1, now);
       master.connect(filter);
       filter.connect(context.destination);
       master.connect(delay);
@@ -156,12 +157,12 @@ function playAgentCue(state, operation) {
         oscillator.type = voice.type;
         oscillator.detune.setValueAtTime(voice.detune, now);
         oscillator.frequency.setValueAtTime(voice.frequency * 0.985, now);
-        oscillator.frequency.exponentialRampToValueAtTime(voice.frequency, now + 0.86);
+        oscillator.frequency.exponentialRampToValueAtTime(voice.frequency, now + introDuration * 0.7);
         voiceGain.gain.setValueAtTime(voice.level, now);
         oscillator.connect(voiceGain);
         voiceGain.connect(master);
         oscillator.start(now);
-        oscillator.stop(now + 1.4);
+        oscillator.stop(now + introDuration + 0.12);
       });
     };
 
@@ -680,6 +681,75 @@ function installDragHandle(element, handle = element, { desktopOnly = true } = {
   });
 }
 
+function installResizeHandle(element, handle) {
+  if (!element || !handle || handle.dataset.resizeBound === 'true') return;
+  handle.dataset.resizeBound = 'true';
+
+  const clamp = (value, min, max) => Math.min(Math.max(value, min), Math.max(min, max));
+
+  handle.addEventListener('pointerdown', event => {
+    if (event.button !== undefined && event.button !== 0) return;
+
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+
+    const computed = window.getComputedStyle(element);
+    const minWidth = parseFloat(computed.minWidth) || 0;
+    const minHeight = parseFloat(computed.minHeight) || 0;
+    const maxWidth = Math.min(
+      parseFloat(computed.maxWidth) || window.innerWidth,
+      Math.max(minWidth, window.innerWidth - rect.left - DRAG_MARGIN_PX)
+    );
+    const maxHeight = Math.min(
+      parseFloat(computed.maxHeight) || window.innerHeight,
+      Math.max(minHeight, window.innerHeight - rect.top - DRAG_MARGIN_PX)
+    );
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startWidth = rect.width;
+    const startHeight = rect.height;
+    const pointerId = event.pointerId;
+    const isSamePointer = nextEvent => (
+      pointerId === undefined || nextEvent.pointerId === undefined || nextEvent.pointerId === pointerId
+    );
+
+    element.style.left = `${rect.left}px`;
+    element.style.top = `${rect.top}px`;
+    element.style.right = 'auto';
+    element.style.bottom = 'auto';
+    element.style.transform = 'translate3d(0, 0, 0) scale(1)';
+    element.style.width = `${rect.width}px`;
+    element.style.height = `${rect.height}px`;
+    element.classList.add('is-resizing');
+
+    const onMove = moveEvent => {
+      if (!isSamePointer(moveEvent)) return;
+      const nextWidth = clamp(startWidth + (moveEvent.clientX - startX), minWidth, maxWidth);
+      const nextHeight = clamp(startHeight + (moveEvent.clientY - startY), minHeight, maxHeight);
+      element.style.width = `${nextWidth}px`;
+      element.style.height = `${nextHeight}px`;
+    };
+
+    const onEnd = endEvent => {
+      if (!isSamePointer(endEvent)) return;
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onEnd);
+      window.removeEventListener('pointercancel', onEnd);
+      if (pointerId !== undefined && handle.hasPointerCapture?.(pointerId)) {
+        handle.releasePointerCapture(pointerId);
+      }
+      element.classList.remove('is-resizing');
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onEnd);
+    window.addEventListener('pointercancel', onEnd);
+    if (pointerId !== undefined) handle.setPointerCapture?.(pointerId);
+    event.preventDefault();
+    event.stopPropagation();
+  });
+}
+
 function installAgentHudDrag() {
   installDragHandle(document.getElementById('agent-mode-hud'));
 }
@@ -739,6 +809,7 @@ function installDebugPanel(api) {
   const trigger = document.getElementById('agent-debug-trigger');
   const panel = document.getElementById('agent-debug-panel');
   const close = document.getElementById('agent-debug-close');
+  const resize = document.getElementById('agent-debug-resize');
   const status = document.getElementById('agent-debug-status');
   const actions = [...document.querySelectorAll('[data-agent-debug-action]')];
   if (!trigger || !panel || !close || !status || actions.length === 0) return;
@@ -746,9 +817,9 @@ function installDebugPanel(api) {
   document.documentElement.dataset.agentDebug = 'enabled';
   panel.hidden = false;
   trigger.hidden = true;
-  // The header is a pointer-events drag surface on both desktop and touch;
-  // only native resize remains desktop-only in CSS.
+  // Both panel gestures are real pointer surfaces on desktop and touch.
   installDragHandle(panel, panel.querySelector('.agent-debug-header'), { desktopOnly: false });
+  installResizeHandle(panel, resize);
   clampFloatingSurfaceToViewport(panel);
 
   const setOpen = open => {

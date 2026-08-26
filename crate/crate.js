@@ -112,6 +112,8 @@ let audio = new Audio();
 let currentPlayingTrackId = null;
 let currentPlayingTrackItem = null;
 let siteAudioEnabled = true;
+let uiAudioContext = null;
+let lastNavigationTickAt = 0;
 
 // Initialize Application
 document.addEventListener('DOMContentLoaded', () => {
@@ -149,6 +151,59 @@ window.addEventListener('seph-agent-sound', event => {
   audio.muted = !siteAudioEnabled;
   document.documentElement.dataset.siteAudio = siteAudioEnabled ? 'on' : 'off';
 });
+
+function getUiAudioContext() {
+  if (!siteAudioEnabled) return null;
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContext) return null;
+  if (!uiAudioContext) {
+    try {
+      uiAudioContext = new AudioContext();
+    } catch (error) {
+      return null;
+    }
+  }
+  return uiAudioContext;
+}
+
+// A near-subliminal mechanical tick gives human browsing a little physicality.
+// It is deliberately separate from Agent Mode cues and follows the site-wide
+// sound toggle, so muting the behavior layer also mutes navigation feedback.
+function playCrateNavigationTick(direction = 1) {
+  if (!siteAudioEnabled) return;
+  const nowWall = performance.now();
+  if (nowWall - lastNavigationTickAt < 60) return;
+  lastNavigationTickAt = nowWall;
+
+  const context = getUiAudioContext();
+  if (!context || context.state === 'closed') return;
+
+  const play = () => {
+    if (!siteAudioEnabled) return;
+    const now = context.currentTime;
+    const oscillator = context.createOscillator();
+    const filter = context.createBiquadFilter();
+    const gain = context.createGain();
+    oscillator.type = 'triangle';
+    oscillator.frequency.setValueAtTime(direction > 0 ? 720 : 860, now);
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(1500, now);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.006, now + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.052);
+    oscillator.connect(filter);
+    filter.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start(now);
+    oscillator.stop(now + 0.065);
+  };
+
+  if (context.state === 'suspended') {
+    context.resume().then(play).catch(() => {});
+  } else {
+    play();
+  }
+}
 
 window.addEventListener('seph-agent-focus', event => {
   agentFocusRecordIds = new Set(
@@ -235,6 +290,22 @@ function findMasterCatalogItem(recordId) {
     String(item?.slug || '') === normalized ||
     String(item?.page_url || '') === normalized
   )) || null;
+}
+
+function syncBuyButtonLabel(buyBtn, item, inCrate) {
+  if (!buyBtn) return;
+  const label = buyBtn.querySelector('.buy-button-label') || buyBtn.querySelector('span');
+  const price = buyBtn.querySelector('.buy-button-price');
+  const priceText = String(item?.price_text || buyBtn.dataset.priceText || '').trim();
+
+  if (inCrate) {
+    if (label) label.textContent = 'In Crate (Remove)';
+    if (price) price.textContent = '';
+  } else {
+    if (label) label.textContent = 'Add to Crate';
+    if (price) price.textContent = priceText ? `(${priceText})` : '';
+  }
+  buyBtn.classList.toggle('in-crate', Boolean(inCrate));
 }
 
 function summarizeCrateItem(item) {
@@ -840,7 +911,9 @@ function handleDragMove(x, y) {
 
   if (isUserCrateViewActive) {
     if (newIndex !== userActiveIndex) {
+      const previousIndex = userActiveIndex;
       userActiveIndex = newIndex;
+      playCrateNavigationTick(newIndex > previousIndex ? 1 : -1);
       if (navigator.vibrate) {
         try { navigator.vibrate(12); } catch (e) {}
       }
@@ -856,7 +929,9 @@ function handleDragMove(x, y) {
     }
   } else {
     if (newIndex !== activeIndex) {
+      const previousIndex = activeIndex;
       activeIndex = newIndex;
+      playCrateNavigationTick(newIndex > previousIndex ? 1 : -1);
       if (navigator.vibrate) {
         try { navigator.vibrate(12); } catch (e) {}
       }
@@ -1225,15 +1300,12 @@ function initUI() {
       } catch (err) {}
       
       const idx = localItems.indexOf(slug);
-      const span = buyBtn.querySelector('span');
-      
       const promptEl = document.getElementById('crate-save-prompt');
       
       if (idx > -1) {
         localItems.splice(idx, 1);
         localStorage.setItem('seph_martin_crate', JSON.stringify(localItems));
-        if (span) span.innerText = "Add to Crate";
-        buyBtn.classList.remove('in-crate');
+        syncBuyButtonLabel(buyBtn, findMasterCatalogItem(slug), false);
         
         rebuildUserCrateRecords();
         filterAndSortCatalog();
@@ -1245,8 +1317,7 @@ function initUI() {
       } else {
         localItems.push(slug);
         localStorage.setItem('seph_martin_crate', JSON.stringify(localItems));
-        if (span) span.innerText = "In Crate (Remove)";
-        buyBtn.classList.add('in-crate');
+        syncBuyButtonLabel(buyBtn, findMasterCatalogItem(slug), true);
         
         // Pan camera to center on user's crate
         isUserCrateViewActive = true;
@@ -2375,6 +2446,7 @@ function navigateCrate(direction) {
     
     if (targetIdx !== userActiveIndex) {
       userActiveIndex = targetIdx;
+      playCrateNavigationTick(targetIdx > prevIndex ? 1 : -1);
       if (navigator.vibrate) {
         try { navigator.vibrate(12); } catch (e) {}
       }
@@ -2398,6 +2470,7 @@ function navigateCrate(direction) {
     
     if (targetIdx !== activeIndex) {
       activeIndex = targetIdx;
+      playCrateNavigationTick(targetIdx > prevIndex ? 1 : -1);
       if (navigator.vibrate) {
         try { navigator.vibrate(12); } catch (e) {}
       }
@@ -2562,7 +2635,7 @@ function showRecordDetails(index) {
         <span class="track-num">${track.number || tIdx + 1}</span>
         <span class="track-name">${track.title}</span>
       </div>
-      <div style="display: flex; align-items: center; gap: 8px;">
+      <div class="track-end">
         <span class="track-duration">${durStr}</span>
         <div class="track-play-indicator">
           <svg class="track-play-icon" viewBox="0 0 24 24">
@@ -2583,6 +2656,7 @@ function showRecordDetails(index) {
   const buyBtn = document.getElementById('buy-btn');
   const slug = item.page_url.split('/').pop();
   buyBtn.setAttribute('data-slug', slug);
+  buyBtn.dataset.priceText = String(item.price_text || '');
   
   const localCrateData = localStorage.getItem('seph_martin_crate');
   let localItems = [];
@@ -2592,20 +2666,17 @@ function showRecordDetails(index) {
     }
   } catch (e) {}
   
-  const span = buyBtn.querySelector('span');
   const promptEl = document.getElementById('crate-save-prompt');
   
   if (localItems.includes(slug)) {
-    if (span) span.innerText = "In Crate (Remove)";
-    buyBtn.classList.add('in-crate');
+    syncBuyButtonLabel(buyBtn, item, true);
     if (!currentUser && promptEl) {
       promptEl.classList.remove('hidden');
     } else if (promptEl) {
       promptEl.classList.add('hidden');
     }
   } else {
-    if (span) span.innerText = "Add to Crate";
-    buyBtn.classList.remove('in-crate');
+    syncBuyButtonLabel(buyBtn, item, false);
     if (promptEl) {
       promptEl.classList.add('hidden');
     }
