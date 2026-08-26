@@ -342,6 +342,10 @@ html[data-agent-mode="override"] .agent-mode-hud {
   transition: color 0.25s ease, opacity 0.25s ease, border-color 0.25s ease, background 0.25s ease;
 }
 
+.agent-sound-toggle[hidden] {
+  display: none !important;
+}
+
 .agent-sound-toggle:hover,
 .agent-sound-toggle:focus-visible {
   color: var(--agent-color);
