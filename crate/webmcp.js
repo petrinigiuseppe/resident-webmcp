@@ -36,6 +36,7 @@ const AGENT_OPERATION_LABELS = {
 };
 const RETURN_FOCUS_CLEAR_MS = 560;
 const RETURN_TO_HUMAN_MS = 960;
+const HUMAN_OVERRIDE_EXCLUSION_SELECTOR = '#agent-mode-hud, #mobile-agent-hint, #agent-debug-panel, #agent-debug-trigger, #details-panel, [data-agent-debug-action]';
 
 let agentState = 'human';
 let agentOperation = 'human';
@@ -696,7 +697,10 @@ function installHumanOverride() {
     if (!ACTIVE_STATES.has(agentState)) return;
     if (debugActionPromise !== null) return;
     if (event.isTrusted === false) return;
-    if (event.target?.closest?.('#agent-mode-hud, #mobile-agent-hint, #agent-debug-panel, #agent-debug-trigger, #details-panel, [data-agent-debug-action]')) return;
+    const eventPath = typeof event.composedPath === 'function' ? event.composedPath() : [];
+    const isExcludedSurface = event.target?.closest?.(HUMAN_OVERRIDE_EXCLUSION_SELECTOR)
+      || eventPath.some(node => node?.nodeType === 1 && node.matches?.(HUMAN_OVERRIDE_EXCLUSION_SELECTOR));
+    if (isExcludedSurface) return;
     setAgentState('override');
     dispatch('seph-agent-focus', { record_ids: [], source: 'human_override' });
   };
