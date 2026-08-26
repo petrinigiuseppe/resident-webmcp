@@ -16,6 +16,8 @@ const ACTIVE_STATES = new Set(['loading', 'active', 'busy', 'standby']);
 const DEBUG_QUERY_KEYS = ['webmcp_debug', 'agent_debug'];
 const SESSION_HANDSHAKE_MS = 280;
 const AGENT_INTRO_MS = 1320;
+const DIG_PREVIEW_MS = 860;
+const DRAG_MARGIN_PX = 12;
 const AGENT_OPERATION_LABELS = {
   human: 'Human control',
   loading: 'Connecting',
@@ -332,9 +334,10 @@ async function withAgentActivity(text, work) {
 }
 
 async function startCuratorSession(api, intent = '') {
+  const enteringAgentMode = agentState === 'human' || agentState === 'override';
   sessionStartedAt = new Date().toISOString();
   setAgentState('loading', { text: 'Connecting to the crate', operation: 'loading' });
-  triggerAgentIntro();
+  if (enteringAgentMode) triggerAgentIntro();
   const transitionId = returnTransitionId;
 
   // Keep the first state on screen for one short paint window. This gives the
@@ -418,8 +421,9 @@ async function runDebugAction(api, action) {
     return withAgentActivity('Digging through Song DNA', async () => {
       const result = scoreCatalog(getCatalog(), 'warm house groove for a late night drive', { maxResults: 5 });
       const ids = result.matches.map(match => match.record_id);
+      await wait(DIG_PREVIEW_MS);
       if (ids.length > 0) api.focusRecords(ids);
-      await wait(920);
+      await wait(220);
       return { ok: true, debug: true, result_count: result.matches.length, focus_record_ids: ids };
     });
   }
@@ -432,8 +436,9 @@ async function runDebugAction(api, action) {
     return withAgentActivity('Digging through Song DNA', async () => {
       const result = scoreCatalog(getCatalog(), 'warm house groove for a late night drive', { maxResults: 5 });
       const ids = result.matches.map(match => match.record_id);
+      await wait(DIG_PREVIEW_MS);
       if (ids.length > 0) api.focusRecords(ids);
-      await wait(900);
+      await wait(220);
       return { ok: true, debug: true, result_count: result.matches.length, focus_record_ids: ids };
     });
   }
@@ -461,7 +466,71 @@ async function runDebugAction(api, action) {
     });
   }
 
+  if (action === 'add') {
+    return withAgentActivity('Adding to My Crate', async () => {
+      const ids = getDebugSampleIds(api);
+      if (ids.length === 0) return resultError('NO_DEBUG_RECORDS', 'No local catalog records are available for the Add to Crate preview.');
+      return api.manageCrate(ids[0], 'add');
+    });
+  }
+
   return resultError('UNKNOWN_DEBUG_ACTION', `Unknown debug action: ${action}`);
+}
+
+function installDragHandle(element, handle = element, { desktopOnly = true } = {}) {
+  if (!element || !handle || handle.dataset.dragBound === 'true') return;
+  handle.dataset.dragBound = 'true';
+
+  const canDrag = () => !desktopOnly || window.matchMedia?.('(min-width: 1024px)').matches;
+  const clamp = (value, min, max) => Math.min(Math.max(value, min), Math.max(min, max));
+
+  handle.addEventListener('pointerdown', event => {
+    if (!canDrag()) return;
+    if (event.button !== undefined && event.button !== 0) return;
+    if (event.target?.closest?.('button, a, input, textarea, select')) return;
+
+    const rect = element.getBoundingClientRect();
+    const offsetX = event.clientX - rect.left;
+    const offsetY = event.clientY - rect.top;
+    const pointerId = event.pointerId;
+    const margin = DRAG_MARGIN_PX;
+
+    element.style.left = `${rect.left}px`;
+    element.style.top = `${rect.top}px`;
+    element.style.right = 'auto';
+    element.style.bottom = 'auto';
+    element.style.transform = 'translate3d(0, 0, 0) scale(1)';
+    element.classList.add('is-dragging');
+
+    const onMove = moveEvent => {
+      if (moveEvent.pointerId !== pointerId) return;
+      const maxLeft = window.innerWidth - rect.width - margin;
+      const maxTop = window.innerHeight - rect.height - margin;
+      const nextLeft = clamp(moveEvent.clientX - offsetX, margin, maxLeft);
+      const nextTop = clamp(moveEvent.clientY - offsetY, margin, maxTop);
+      element.style.left = `${nextLeft}px`;
+      element.style.top = `${nextTop}px`;
+    };
+
+    const onEnd = endEvent => {
+      if (endEvent?.pointerId !== undefined && endEvent.pointerId !== pointerId) return;
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onEnd);
+      handle.removeEventListener('pointercancel', onEnd);
+      if (handle.hasPointerCapture?.(pointerId)) handle.releasePointerCapture(pointerId);
+      element.classList.remove('is-dragging');
+    };
+
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onEnd, { once: true });
+    handle.addEventListener('pointercancel', onEnd, { once: true });
+    handle.setPointerCapture?.(pointerId);
+    event.preventDefault();
+  });
+}
+
+function installAgentHudDrag() {
+  installDragHandle(document.getElementById('agent-mode-hud'));
 }
 
 function updateDebugPanel() {
@@ -485,6 +554,7 @@ function installDebugPanel(api) {
   document.documentElement.dataset.agentDebug = 'enabled';
   panel.hidden = false;
   trigger.hidden = true;
+  installDragHandle(panel, panel.querySelector('.agent-debug-header'));
 
   const setOpen = open => {
     panel.hidden = !open;
@@ -695,9 +765,8 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
           excludeIds: input.exclude_ids
         });
         const focusIds = result.matches.map(match => match.record_id);
-        if (focusIds.length > 0) {
-          api.focusRecords(focusIds);
-        }
+        await wait(DIG_PREVIEW_MS);
+        if (focusIds.length > 0) api.focusRecords(focusIds);
         return {
           ok: true,
           ...result,
@@ -833,6 +902,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
 async function boot() {
   installHumanOverride();
   installAgentSoundControl();
+  installAgentHudDrag();
   try {
     const api = await waitForCrateApi();
     installDebugPanel(api);

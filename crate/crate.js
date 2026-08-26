@@ -65,8 +65,12 @@ let hasInteracted = false;
 // Agent-native visual state. WebMCP owns the state transition; the renderer
 // only responds to it so the normal human interaction path stays intact.
 let agentVisualState = 'human';
+let agentVisualOperation = 'human';
 let agentFocusRecordIds = new Set();
 let baseSpotLightIntensity = 2.5;
+let agentDigPreviewTimer = null;
+let agentDigPreviewToken = 0;
+let agentDigPreviewIndex = -1;
 
 let resolveCrateApiReady;
 window.__CRATE_API_READY_PROMISE__ = new Promise(resolve => {
@@ -102,8 +106,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
 window.addEventListener('seph-agent-state', event => {
   const nextState = event.detail?.state;
-  if (nextState) {
-    agentVisualState = nextState;
+  if (nextState) agentVisualState = nextState;
+  agentVisualOperation = event.detail?.operation || 'human';
+  if (agentVisualState === 'busy' && agentVisualOperation === 'digging') {
+    startAgentDigPreview();
+  } else {
+    stopAgentDigPreview();
   }
 });
 
@@ -2111,8 +2119,14 @@ function startStaggeredLoading() {
 
 // Helper to update record mesh heights based on selection state
 function updateRecordHeights() {
+  const agentPreviewActive = agentVisualState === 'busy'
+    && agentVisualOperation === 'digging'
+    && !isUserCrateViewActive;
   recordsData.forEach((rec, idx) => {
-    if (isSelected && idx === activeIndex && !isUserCrateViewActive) {
+    if (agentPreviewActive && idx === agentDigPreviewIndex) {
+      rec.targetYOffset = 0.12;
+      rec.targetRotX = 0;
+    } else if (isSelected && idx === activeIndex && !isUserCrateViewActive) {
       rec.targetYOffset = 0.12; // Raise active record
       rec.targetRotX = 0;       // Face vertically straight
     } else {
@@ -2128,6 +2142,49 @@ function updateRecordHeights() {
       rec.targetYOffset = 0;
     }
   });
+}
+
+function stopAgentDigPreview() {
+  agentDigPreviewToken += 1;
+  if (agentDigPreviewTimer) window.clearTimeout(agentDigPreviewTimer);
+  agentDigPreviewTimer = null;
+  agentDigPreviewIndex = -1;
+  delete document.documentElement.dataset.agentDigPreviewIndex;
+  updateRecordHeights();
+}
+
+function startAgentDigPreview() {
+  stopAgentDigPreview();
+  if (isUserCrateViewActive || recordsData.length === 0) return;
+
+  const previewToken = ++agentDigPreviewToken;
+  let cursor = Math.max(0, activeIndex);
+
+  const tick = () => {
+    if (
+      previewToken !== agentDigPreviewToken
+      || agentVisualState !== 'busy'
+      || agentVisualOperation !== 'digging'
+      || isUserCrateViewActive
+    ) return;
+
+    const availableIndexes = recordsData
+      .map((record, index) => index < catalog.length && record.mesh.visible ? index : -1)
+      .filter(index => index >= 0);
+    if (availableIndexes.length === 0) {
+      agentDigPreviewTimer = window.setTimeout(tick, 140);
+      return;
+    }
+
+    agentDigPreviewIndex = availableIndexes[cursor % availableIndexes.length];
+    activeIndex = agentDigPreviewIndex;
+    document.documentElement.dataset.agentDigPreviewIndex = String(agentDigPreviewIndex);
+    updateRecordHeights();
+    cursor += 1;
+    agentDigPreviewTimer = window.setTimeout(tick, 220);
+  };
+
+  tick();
 }
 
 // Navigate to a specific index in the crate
@@ -2598,16 +2655,8 @@ function animate() {
   const agentMotionActive = ['loading', 'active', 'busy', 'standby', 'returning'].includes(agentVisualState);
   const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
   const now = performance.now();
-  const agentOperation = document.documentElement.dataset.agentOperation || '';
   const agentFloatOffset = agentMotionActive && !reducedMotion
     ? Math.sin(now * 0.00135) * 0.006
-    : 0;
-  const agentBrowseOffset = agentMotionActive && !reducedMotion
-    ? agentOperation === 'digging'
-      ? Math.sin(now * 0.0016) * 0.018
-      : ['browsing', 'searching'].includes(agentOperation)
-        ? Math.sin(now * 0.0011) * 0.012
-        : 0
     : 0;
 
   // Agent Mode is deliberately felt before it becomes theatrical: a nearly
@@ -2624,10 +2673,7 @@ function animate() {
 
   // When details panel is open on desktop, shift camera slightly to the right (0.08) to push crate to the left, clearing space for the right sidebar
   const baseTargetCamX = isSelected && window.innerWidth >= 1024 ? 0.08 : 0;
-  // During digging/browsing the agent makes a tiny lateral pass through the
-  // crate. It is deliberately sub-pixel in spirit: directional presence, not
-  // a camera effect that competes with the records.
-  targetCamX = baseTargetCamX + globalCamXOffset + agentBrowseOffset;
+  targetCamX = baseTargetCamX + globalCamXOffset;
   currentCamX += (targetCamX - currentCamX) * 0.08;
 
   // Move lights along with the camera focus to prevent washing out/exposure shifts
@@ -2691,6 +2737,9 @@ function animate() {
   // 3. Records Physics Simulation
   const H = 0.31; // height
   const yPivot = -0.15; // bottom support axis
+  const agentDiggingPreviewActive = agentVisualState === 'busy'
+    && agentVisualOperation === 'digging'
+    && !isUserCrateViewActive;
 
   recordsData.forEach((rec, idx) => {
     if (idx < activeIndex) {
@@ -2698,7 +2747,9 @@ function animate() {
     } else if (idx > activeIndex) {
       rec.targetRotX = -0.20; // leaning backward inside the stack
     } else {
-      if (isSelected && !isUserCrateViewActive) {
+      if (agentDiggingPreviewActive && idx === agentDigPreviewIndex) {
+        rec.targetRotX = 0;
+      } else if (isSelected && !isUserCrateViewActive) {
         rec.targetRotX = 0; // perfectly upright when raised
       } else {
         rec.targetRotX = -0.10; // slightly leaning back
