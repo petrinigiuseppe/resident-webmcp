@@ -546,7 +546,12 @@ html[data-agent-intro="active"] .agent-mode-intro {
   bottom: 22px;
   z-index: 1301;
   width: min(252px, calc(100vw - 44px));
-  padding: 15px;
+  height: min(430px, calc(100vh - 44px));
+  min-width: 228px;
+  min-height: 280px;
+  max-width: min(420px, calc(100vw - 44px));
+  max-height: calc(100vh - 44px);
+  padding: 15px 15px 28px;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 16px;
   background: rgba(13, 13, 16, 0.78);
@@ -554,6 +559,21 @@ html[data-agent-intro="active"] .agent-mode-intro {
   color: var(--text-primary);
   backdrop-filter: blur(18px) saturate(120%);
   -webkit-backdrop-filter: blur(18px) saturate(120%);
+  overflow: auto;
+  resize: both;
+  scrollbar-gutter: stable;
+}
+
+.agent-debug-panel::after {
+  content: '';
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 12px;
+  height: 12px;
+  pointer-events: none;
+  opacity: 0.42;
+  background: repeating-linear-gradient(135deg, transparent 0 3px, var(--agent-color, #8acb92) 3px 4px);
 }
 
 .agent-debug-header {
@@ -608,18 +628,13 @@ html[data-agent-intro="active"] .agent-mode-intro {
   min-height: 30px;
   padding: 6px 7px;
   border: 1px solid rgba(255, 255, 255, 0.13);
-  border-radius: 8px;
+  border-radius: var(--crate-surface-radius);
   background: rgba(255, 255, 255, 0.04);
   color: var(--text-secondary);
   font: inherit;
   font-size: 0.5rem;
   cursor: pointer;
   transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease, opacity 0.2s ease;
-}
-
-.agent-debug-action[data-agent-debug-action="add"],
-.agent-debug-action[data-agent-debug-action="remove"] {
-  border-radius: var(--crate-surface-radius);
 }
 
 .agent-debug-action:hover,
@@ -661,22 +676,18 @@ html[data-agent-intro="active"] .agent-mode-intro {
    safe when WebGL is unavailable. */
 #canvas-container {
   --agent-frame-color: rgba(138, 203, 146, 0.72);
-  --agent-frame-top: 12%;
-  --agent-frame-right: 26%;
-  --agent-frame-bottom: 14%;
-  --agent-frame-left: 26%;
   transform-origin: 50% 50%;
   will-change: transform;
 }
 
 .agent-crate-frame {
   position: absolute;
-  top: var(--agent-frame-top);
-  left: var(--agent-frame-left);
+  top: 0;
+  left: 0;
   z-index: 2;
   display: block;
-  width: calc(100% - var(--agent-frame-left) - var(--agent-frame-right));
-  height: calc(100% - var(--agent-frame-top) - var(--agent-frame-bottom));
+  width: 100%;
+  height: 100%;
   overflow: visible;
   pointer-events: none;
   color: var(--agent-frame-color);
@@ -732,12 +743,10 @@ html[data-agent-mode="returning"] #canvas-container {
 @keyframes agentCrateFrameBreath {
   0%, 100% {
     opacity: 0.42;
-    transform: scale(0.998);
     filter: drop-shadow(0 0 3px currentColor) drop-shadow(0 0 12px currentColor);
   }
   50% {
     opacity: 0.68;
-    transform: scale(1.002);
     filter: drop-shadow(0 0 5px currentColor) drop-shadow(0 0 20px currentColor);
   }
 }
@@ -1703,13 +1712,6 @@ html[data-agent-mode="returning"] .mobile-agent-hint {
     transform: translate3d(-50%, -12px, 0) scale(0.94);
   }
 
-  #canvas-container {
-    --agent-frame-top: 22%;
-    --agent-frame-right: 7%;
-    --agent-frame-bottom: 22%;
-    --agent-frame-left: 7%;
-  }
-
   html[data-agent-mode="loading"] .agent-mode-hud,
   html[data-agent-mode="active"] .agent-mode-hud,
   html[data-agent-mode="busy"] .agent-mode-hud,
@@ -1736,8 +1738,13 @@ html[data-agent-mode="returning"] .mobile-agent-hint {
     left: 16px;
     bottom: 88px;
     width: min(252px, calc(100vw - 32px));
+    height: auto;
+    min-width: 0;
+    min-height: 0;
+    max-width: calc(100vw - 32px);
     max-height: min(414px, calc(100dvh - 132px));
     overflow-y: auto;
+    resize: none;
     overscroll-behavior: contain;
   }
 }
@@ -1746,13 +1753,6 @@ html[data-agent-mode="returning"] .mobile-agent-hint {
    desktop orb in that case; reserve the compact mode surface for real phone
    widths so opening ChatGPT does not make the crate look like a mobile site. */
 @media (min-width: 769px) and (max-width: 1023px) and (hover: hover) and (pointer: fine) {
-  #canvas-container {
-    --agent-frame-top: 14%;
-    --agent-frame-right: 22%;
-    --agent-frame-bottom: 14%;
-    --agent-frame-left: 22%;
-  }
-
   .agent-mode-hud {
     top: 50%;
     left: clamp(18px, calc(50% - 560px), 20vw);

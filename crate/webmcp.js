@@ -577,13 +577,17 @@ async function runDebugAction(api, action) {
   }
 
   if (action === 'checkout') {
-    return withAgentActivity('Preparing a human checkout review', async () => ({
-      ok: true,
-      debug: true,
-      ...api.prepareCheckout(),
-      human_confirmation_required: true,
-      next_step: 'Review the visible My Crate, then click BUY CRATE yourself.'
-    }));
+    return withAgentActivity('Preparing a human checkout review', async () => {
+      const checkout = api.prepareCheckout();
+      if (!checkout.ok) return checkout;
+      return {
+        ok: true,
+        debug: true,
+        ...checkout,
+        human_confirmation_required: true,
+        next_step: 'Review the visible My Crate, then click BUY CRATE yourself.'
+      };
+    });
   }
 
   return resultError('UNKNOWN_DEBUG_ACTION', `Unknown debug action: ${action}`);
@@ -1022,12 +1026,16 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: uiMutation,
     async execute() {
-      return withAgentActivity('Preparing a human checkout review', async () => ({
-        ok: true,
-        ...api.prepareCheckout(),
-        human_confirmation_required: true,
-        next_step: 'The user must review the visible crate and click BUY CRATE themselves.'
-      }));
+      return withAgentActivity('Preparing a human checkout review', async () => {
+        const checkout = api.prepareCheckout();
+        if (!checkout.ok) return checkout;
+        return {
+          ok: true,
+          ...checkout,
+          human_confirmation_required: true,
+          next_step: 'The user must review the visible crate and click BUY CRATE themselves.'
+        };
+      });
     }
   });
 

@@ -74,6 +74,18 @@ let agentDigPreviewToken = 0;
 let agentDigPreviewIndex = -1;
 let agentDigPreviewSnapshot = null;
 
+// The agent frame is projected from the actual crate silhouette instead of
+// being a viewport-shaped decoration. These four local-space corners match
+// the outer trapezoid of both the shop and personal crate meshes.
+const AGENT_CRATE_FRAME_POINTS = [
+  [-0.18, 0.12, -0.18],
+  [0.18, 0.12, -0.18],
+  [0.18, -0.165, 0.18],
+  [-0.18, -0.165, 0.18]
+];
+const agentFrameProjection = new THREE.Vector3();
+let agentFrameViewBox = '';
+
 let resolveCrateApiReady;
 window.__CRATE_API_READY_PROMISE__ = new Promise(resolve => {
   resolveCrateApiReady = resolve;
@@ -337,6 +349,26 @@ function focusRecordById(recordId) {
 }
 
 function showMyCrateView() {
+  const checkoutSummary = getCheckoutSummary();
+  if (!checkoutSummary.checkout_available) {
+    if (isUserCrateViewActive) {
+      isUserCrateViewActive = false;
+      globalCamXOffset = 0;
+      const shopBtn = document.getElementById('view-shop-btn');
+      const myCrateBtn = document.getElementById('view-mycrate-btn');
+      if (shopBtn) shopBtn.classList.add('active');
+      if (myCrateBtn) myCrateBtn.classList.remove('active');
+    }
+    updateUIControlsState();
+    return {
+      ok: false,
+      error: { code: 'EMPTY_MY_CRATE', message: 'My Crate is empty. Add at least one record before checkout.' },
+      view: 'shop',
+      cart_count: 0,
+      checkout_available: false
+    };
+  }
+
   const myCrateBtn = document.getElementById('view-mycrate-btn');
   if (myCrateBtn && !myCrateBtn.classList.contains('hidden')) {
     myCrateBtn.click();
@@ -346,7 +378,7 @@ function showMyCrateView() {
     const shopBtn = document.getElementById('view-shop-btn');
     if (shopBtn) shopBtn.classList.remove('active');
   }
-  return { ok: true, view: 'my_crate', cart_count: readLocalCrateItems().length };
+  return { ok: true, view: 'my_crate', cart_count: checkoutSummary.cart_count };
 }
 
 function parsePriceCents(priceText) {
@@ -460,8 +492,9 @@ function publishCrateApi() {
     manageCrate: manageCrateRecord,
     showMyCrate: showMyCrateView,
     prepareCheckout: () => {
-      showMyCrateView();
-      return getCheckoutSummary();
+      const view = showMyCrateView();
+      if (!view.ok) return view;
+      return { ok: true, ...getCheckoutSummary() };
     }
   };
 
@@ -1349,7 +1382,11 @@ function initUI() {
   if (checkoutBtn) {
     checkoutBtn.addEventListener('click', async () => {
       const localItems = readLocalCrateItems();
-      if (localItems.length === 0) return;
+      const validItems = localItems.map(findMasterCatalogItem).filter(Boolean);
+      if (validItems.length === 0) {
+        updateUIControlsState();
+        return;
+      }
 
       checkoutBtn.disabled = true;
       const originalContent = checkoutBtn.innerHTML;
@@ -1359,32 +1396,30 @@ function initUI() {
         let sumCents = 0;
         const cartLines = [];
         const titles = [];
-        localItems.forEach(slug => {
-          const item = masterCatalog.find(c => c.page_url.split('/').pop() === slug);
-          if (item) {
-            titles.push(item.title);
-            const digits = item.price_text.replace(/[^\d.,]/g, '').replace(',', '.');
-            const price = parseFloat(digits);
-            const priceCents = isFinite(price) ? Math.round(price * 100) : 0;
-            sumCents += priceCents;
-            
-            cartLines.push({
-              // The Crate sells complete releases. Per-track lines belong to the legacy shop.
-              type: "product",
-              slug: item.slug,
-              qty: 1
-            });
-          }
+        validItems.forEach(item => {
+          titles.push(item.title);
+          const digits = item.price_text.replace(/[^\d.,]/g, '').replace(',', '.');
+          const price = parseFloat(digits);
+          const priceCents = isFinite(price) ? Math.round(price * 100) : 0;
+          sumCents += priceCents;
+
+          cartLines.push({
+            // The Crate sells complete releases. Per-track lines belong to the legacy shop.
+            type: "product",
+            slug: item.slug,
+            qty: 1
+          });
         });
 
-        const firstItem = masterCatalog.find(c => c.page_url.split('/').pop() === localItems[0]);
-        const baseSlug = firstItem ? firstItem.slug : localItems[0];
+        const firstItem = validItems[0];
+        const validSlugs = validItems.map(item => getCrateRecordId(item));
+        const baseSlug = firstItem.slug || validSlugs[0];
         
         const params = new URLSearchParams();
         params.set('slug', baseSlug);
-        params.set('cart_items', String(localItems.length));
+        params.set('cart_items', String(validItems.length));
         params.set('cart_total_cents', String(sumCents));
-        params.set('cart_slugs', localItems.join(','));
+        params.set('cart_slugs', validSlugs.join(','));
         params.set('cart_lines', JSON.stringify(cartLines));
         params.set('return_to', '/');
 
@@ -1689,12 +1724,50 @@ function updateCameraPosition() {
   camera.lookAt(currentCamX, -0.07, 0);
 }
 
+function syncAgentCrateFrame() {
+  const container = document.getElementById('canvas-container');
+  const frame = document.getElementById('agent-crate-frame');
+  const path = frame?.querySelector('path');
+  const activeGroup = isUserCrateViewActive ? userCrateGroup : crateGroup;
+  if (!container || !frame || !path || !activeGroup || !camera) return;
+
+  const width = container.clientWidth;
+  const height = container.clientHeight;
+  if (width <= 0 || height <= 0) return;
+
+  const viewBox = `0 0 ${width} ${height}`;
+  if (viewBox !== agentFrameViewBox) {
+    frame.setAttribute('viewBox', viewBox);
+    agentFrameViewBox = viewBox;
+  }
+
+  activeGroup.updateWorldMatrix(true, false);
+  const projected = AGENT_CRATE_FRAME_POINTS.map(([x, y, z]) => {
+    agentFrameProjection.set(x, y, z);
+    activeGroup.localToWorld(agentFrameProjection);
+    agentFrameProjection.project(camera);
+    return {
+      x: (agentFrameProjection.x * 0.5 + 0.5) * width,
+      y: (-agentFrameProjection.y * 0.5 + 0.5) * height
+    };
+  });
+
+  if (projected.some(point => !Number.isFinite(point.x) || !Number.isFinite(point.y))) return;
+
+  path.setAttribute('d', projected.map((point, index) => {
+    const command = index === 0 ? 'M' : 'L';
+    return `${command} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`;
+  }).join(' ') + ' Z');
+  frame.dataset.crateView = isUserCrateViewActive ? 'my-crate' : 'shop';
+}
+
 function onWindowResize() {
   const container = document.getElementById('canvas-container');
   camera.aspect = container.clientWidth / container.clientHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(container.clientWidth, container.clientHeight);
   updateCameraPosition();
+  syncAgentCrateFrame();
   syncThemeWithBrowser();
 }
 
@@ -2767,6 +2840,7 @@ function animate() {
 
   // Dynamically update camera position and lookAt based on aspect ratio
   updateCameraPosition();
+  syncAgentCrateFrame();
 
   // Update active flying vinyl animations
   if (activeAnimations.length > 0) {
@@ -3519,7 +3593,8 @@ function updateMyCrateBadge() {
 
 function updateUIControlsState() {
   const localItems = readLocalCrateItems();
-  const hasPersonal = localItems.length > 0;
+  const checkoutSummary = getCheckoutSummary();
+  const hasPersonal = checkoutSummary.checkout_available;
   
   const filterSwitcher = document.querySelector('.filter-switcher-pill');
   const filterCompactBtn = document.getElementById('filter-compact-btn');
@@ -3573,7 +3648,7 @@ function updateUIControlsState() {
       }
     }
     
-    // Show Buy Crate button if there are items
+    // Show Buy Crate only when the visible personal crate has valid catalog lines.
     if (checkoutBtn) {
       if (hasPersonal) {
         checkoutBtn.classList.remove('hidden');
@@ -3624,19 +3699,19 @@ function updateUIControlsState() {
     }
   }
 
+  if (checkoutBtn) {
+    const checkoutEnabled = isUserCrateViewActive && hasPersonal;
+    checkoutBtn.disabled = !checkoutEnabled;
+    checkoutBtn.setAttribute('aria-disabled', String(!checkoutEnabled));
+    checkoutBtn.title = checkoutEnabled
+      ? 'Review checkout for the records in My Crate'
+      : 'Add a record to My Crate before checkout';
+  }
+
   // Update total price on Buy Crate button
   const totalSpan = document.getElementById('checkout-total');
-  if (totalSpan && hasPersonal) {
-    let sumCents = 0;
-    localItems.forEach(slug => {
-      const item = masterCatalog.find(c => c.page_url.split('/').pop() === slug);
-      if (item && item.price_text) {
-        const digits = item.price_text.replace(/[^\d.,]/g, '').replace(',', '.');
-        const price = parseFloat(digits);
-        if (isFinite(price)) sumCents += Math.round(price * 100);
-      }
-    });
-    totalSpan.innerText = `€${(sumCents / 100).toFixed(2)}`;
+  if (totalSpan) {
+    totalSpan.innerText = `€${(checkoutSummary.total_cents / 100).toFixed(2)}`;
   }
 }
 
