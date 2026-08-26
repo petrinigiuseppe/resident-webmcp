@@ -75,13 +75,15 @@ let agentDigPreviewIndex = -1;
 let agentDigPreviewSnapshot = null;
 
 // The agent frame is projected from the actual crate silhouette instead of
-// being a viewport-shaped decoration. These four local-space corners match
-// the outer trapezoid of both the shop and personal crate meshes.
+// being a viewport-shaped decoration. These local-space points follow the
+// outer crate edges for both the shop and personal crate meshes.
 const AGENT_CRATE_FRAME_POINTS = [
   [-0.18, 0.12, -0.18],
   [0.18, 0.12, -0.18],
+  [0.18, 0, 0.18],
   [0.18, -0.165, 0.18],
-  [-0.18, -0.165, 0.18]
+  [-0.18, -0.165, 0.18],
+  [-0.18, 0, 0.18]
 ];
 const agentFrameProjection = new THREE.Vector3();
 let agentFrameViewBox = '';
@@ -1742,6 +1744,7 @@ function syncAgentCrateFrame() {
   }
 
   activeGroup.updateWorldMatrix(true, false);
+  camera.updateMatrixWorld();
   const projected = AGENT_CRATE_FRAME_POINTS.map(([x, y, z]) => {
     agentFrameProjection.set(x, y, z);
     activeGroup.localToWorld(agentFrameProjection);
