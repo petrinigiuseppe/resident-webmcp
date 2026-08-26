@@ -2579,7 +2579,7 @@ function formatTime(seconds) {
 function animate() {
   requestAnimationFrame(animate);
 
-  const agentMotionActive = ['loading', 'active', 'busy', 'standby'].includes(agentVisualState);
+  const agentMotionActive = ['loading', 'active', 'busy', 'standby', 'returning'].includes(agentVisualState);
   const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
   const agentFloatOffset = agentMotionActive && !reducedMotion
     ? Math.sin(performance.now() * 0.00135) * 0.006

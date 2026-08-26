@@ -70,8 +70,9 @@ input, textarea, [contenteditable="true"], .postit-code, .postit-text, .postit-p
   pointer-events: auto; /* Re-enable pointer events for UI elements */
 }
 
-/* Agent-native status HUD. The page stays visually human until a real
-   WebMCP tool call starts a curator session. */
+/* Agent-native presence layer. The page stays visually human until a real
+   WebMCP tool call starts a curator session. The HUD is a small field of
+   presence, not a dashboard card: the crate remains the hero. */
 .sr-only {
   position: absolute !important;
   width: 1px !important;
@@ -86,24 +87,60 @@ input, textarea, [contenteditable="true"], .postit-code, .postit-text, .postit-p
 
 .agent-mode-hud {
   --agent-color: #03ff00;
+  --agent-text: var(--text-primary);
+  --agent-muted: var(--text-secondary);
   position: fixed;
-  top: 92px;
-  right: 32px;
+  top: 50%;
+  left: clamp(18px, calc(50% - 560px), 20vw);
+  right: auto;
   /* Stay above the detail drawer so agent state remains visible while a
      tool opens or inspects a record. */
   z-index: 1200;
-  min-width: 238px;
-  padding: 12px 14px 13px;
-  border: 1px solid rgba(3, 255, 0, 0.28);
-  border-radius: 4px;
-  background: rgba(5, 5, 5, 0.68);
-  box-shadow: 0 0 0 rgba(3, 255, 0, 0), 0 12px 28px rgba(0, 0, 0, 0.24);
+  width: min(248px, calc(100vw - 36px));
+  min-height: 76px;
+  padding: 14px 16px 13px;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 26px 30px 30px 18px;
+  background:
+    radial-gradient(circle at 10% 10%, rgba(3, 255, 0, 0.13), transparent 34%),
+    linear-gradient(140deg, rgba(255, 255, 255, 0.09), rgba(5, 5, 5, 0.64));
+  box-shadow: 0 0 0 1px rgba(3, 255, 0, 0.03), 0 18px 45px rgba(0, 0, 0, 0.18);
   backdrop-filter: blur(14px) saturate(130%);
   -webkit-backdrop-filter: blur(14px) saturate(130%);
   opacity: 0;
-  transform: translateY(-8px);
+  transform: translate3d(-22px, -50%, 0) scale(0.94);
   pointer-events: none !important;
-  transition: opacity 0.35s ease, transform 0.35s ease, box-shadow 0.45s ease, border-color 0.35s ease;
+  isolation: isolate;
+  overflow: visible;
+  transition: opacity 0.55s cubic-bezier(0.16, 1, 0.3, 1), transform 0.7s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.7s ease, border-color 0.55s ease;
+}
+
+.agent-mode-hud::before {
+  content: '';
+  position: absolute;
+  inset: -24px -34px;
+  z-index: -2;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(3, 255, 0, 0.14), rgba(3, 255, 0, 0.04) 38%, transparent 72%);
+  filter: blur(20px);
+  opacity: 0;
+  transform: scale(0.72);
+  transition: opacity 0.8s ease, transform 1s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.agent-mode-hud::after {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  z-index: -1;
+  border: 1px solid rgba(3, 255, 0, 0.2);
+  border-left-color: transparent;
+  border-bottom-color: transparent;
+  border-radius: inherit;
+  opacity: 0.45;
+  transform: rotate(-9deg);
+  animation: agentHudOrbit 14s linear infinite;
+  pointer-events: none;
 }
 
 #ui-overlay #agent-mode-hud {
@@ -114,20 +151,32 @@ html[data-agent-mode="loading"] .agent-mode-hud,
 html[data-agent-mode="active"] .agent-mode-hud,
 html[data-agent-mode="busy"] .agent-mode-hud,
 html[data-agent-mode="standby"] .agent-mode-hud,
+html[data-agent-mode="returning"] .agent-mode-hud,
 html[data-agent-mode="override"] .agent-mode-hud {
   opacity: 1;
-  transform: translateY(0);
+  transform: translate3d(0, -50%, 0) scale(1);
 }
 
 html[data-agent-mode="loading"] .agent-mode-hud,
-html[data-agent-mode="busy"] .agent-mode-hud {
-  border-color: rgba(3, 255, 0, 0.45);
-  box-shadow: 0 0 24px rgba(3, 255, 0, 0.08), 0 12px 28px rgba(0, 0, 0, 0.24);
+html[data-agent-mode="busy"] .agent-mode-hud,
+html[data-agent-mode="returning"] .agent-mode-hud {
+  border-color: rgba(3, 255, 0, 0.35);
+  box-shadow: 0 0 28px rgba(3, 255, 0, 0.08), 0 18px 45px rgba(0, 0, 0, 0.18);
 }
 
-html[data-agent-mode="active"] .agent-mode-hud {
-  border-color: rgba(3, 255, 0, 0.72);
-  box-shadow: 0 0 30px rgba(3, 255, 0, 0.16), 0 12px 28px rgba(0, 0, 0, 0.24);
+html[data-agent-mode="loading"] .agent-mode-hud::before,
+html[data-agent-mode="active"] .agent-mode-hud::before,
+html[data-agent-mode="busy"] .agent-mode-hud::before,
+html[data-agent-mode="standby"] .agent-mode-hud::before,
+html[data-agent-mode="returning"] .agent-mode-hud::before {
+  opacity: 1;
+  transform: scale(1);
+}
+
+html[data-agent-mode="active"] .agent-mode-hud,
+html[data-agent-mode="standby"] .agent-mode-hud {
+  border-color: rgba(3, 255, 0, 0.48);
+  box-shadow: 0 0 34px rgba(3, 255, 0, 0.11), 0 18px 45px rgba(0, 0, 0, 0.18);
 }
 
 html[data-agent-mode="override"] .agent-mode-hud {
@@ -138,35 +187,101 @@ html[data-agent-mode="override"] .agent-mode-hud {
 .agent-mode-hud-line {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 7px;
+  gap: 9px;
+  margin-bottom: 8px;
 }
 
-.agent-mode-signal {
-  width: 6px;
-  height: 6px;
-  flex: 0 0 6px;
+.agent-mode-sigil {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 28px;
+  height: 14px;
+  flex: 0 0 28px;
+  border-radius: 50%;
+  opacity: 0.9;
+}
+
+.agent-mode-sigil::before {
+  content: '';
+  position: absolute;
+  inset: 2px -2px;
+  border-top: 1px solid rgba(3, 255, 0, 0.32);
+  border-bottom: 1px solid rgba(3, 255, 0, 0.12);
+  border-radius: 50%;
+  transform: rotate(-12deg);
+  opacity: 0.8;
+}
+
+.agent-eye {
+  position: relative;
+  width: 5px;
+  height: 5px;
+  flex: 0 0 5px;
   border-radius: 50%;
   background: var(--agent-color);
-  box-shadow: 0 0 10px var(--agent-color);
+  box-shadow: 0 0 9px var(--agent-color), 0 0 18px rgba(3, 255, 0, 0.5);
+  transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.35s ease;
 }
 
-html[data-agent-mode="loading"] .agent-mode-signal,
-html[data-agent-mode="busy"] .agent-mode-signal {
-  animation: agentSignalPulse 1s ease-in-out infinite;
+.agent-eye::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border: 1px solid var(--agent-color);
+  border-radius: 50%;
+  opacity: 0.22;
 }
 
-html[data-agent-mode="active"] .agent-mode-signal {
-  animation: agentSignalPulse 2.2s ease-in-out infinite;
+html[data-agent-mode="loading"] .agent-mode-sigil,
+html[data-agent-mode="busy"] .agent-mode-sigil {
+  animation: agentSigilScan 1.5s ease-in-out infinite;
 }
 
-@keyframes agentSignalPulse {
-  0%, 100% { opacity: 0.42; transform: scale(0.8); }
-  50% { opacity: 1; transform: scale(1.15); }
+html[data-agent-mode="active"] .agent-mode-sigil,
+html[data-agent-mode="standby"] .agent-mode-sigil {
+  animation: agentSigilBreathe 3.2s ease-in-out infinite;
+}
+
+html[data-agent-operation="digging"] .agent-eye-left,
+html[data-agent-operation="inspecting"] .agent-eye-left {
+  transform: translateX(-2px);
+}
+
+html[data-agent-operation="digging"] .agent-eye-right,
+html[data-agent-operation="inspecting"] .agent-eye-right {
+  transform: translateX(2px);
+}
+
+html[data-agent-operation="searching"] .agent-eye-left,
+html[data-agent-operation="searching"] .agent-eye-right {
+  transform: translateX(1px);
+}
+
+html[data-agent-operation="returning"] .agent-eye {
+  opacity: 0.48;
+}
+
+@keyframes agentSigilScan {
+  0%, 100% { transform: translateX(-1px) scale(0.94); opacity: 0.62; }
+  50% { transform: translateX(2px) scale(1.06); opacity: 1; }
+}
+
+@keyframes agentSigilBreathe {
+  0%, 100% { transform: scale(0.96); opacity: 0.72; }
+  50% { transform: scale(1.04); opacity: 1; }
+}
+
+@keyframes agentHudOrbit {
+  to { transform: rotate(351deg); }
 }
 
 .agent-mode-kicker,
-.agent-mode-detail {
+.agent-mode-detail,
+.agent-mode-operation,
+.agent-sound-toggle {
   font-family: var(--font-mono);
   font-size: 0.58rem;
   letter-spacing: 0.1em;
@@ -174,15 +289,16 @@ html[data-agent-mode="active"] .agent-mode-signal {
 }
 
 .agent-mode-kicker {
-  color: var(--text-secondary);
+  color: var(--agent-muted);
 }
 
 .agent-mode-label {
   display: block;
-  color: var(--agent-color);
-  font-family: var(--font-mono);
-  font-size: 0.82rem;
-  letter-spacing: 0.08em;
+  color: var(--agent-text);
+  font-family: var(--font-sans);
+  font-size: 0.84rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
   line-height: 1.35;
   text-transform: uppercase;
 }
@@ -190,13 +306,87 @@ html[data-agent-mode="active"] .agent-mode-signal {
 .agent-mode-detail {
   display: block;
   margin-top: 4px;
-  color: var(--text-secondary);
+  color: var(--agent-muted);
   line-height: 1.4;
+}
+
+.agent-mode-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 16px;
+  margin-top: 8px;
+}
+
+.agent-mode-operation {
+  flex: 1;
+  color: var(--agent-color);
+  font-size: 0.52rem;
+  line-height: 1.2;
+}
+
+.agent-sound-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--agent-muted);
+  cursor: pointer;
+  opacity: 0.7;
+  pointer-events: auto !important;
+  transition: color 0.25s ease, opacity 0.25s ease;
+}
+
+.agent-sound-toggle:hover,
+.agent-sound-toggle:focus-visible {
+  color: var(--agent-color);
+  opacity: 1;
+}
+
+.agent-sound-toggle:focus-visible {
+  outline: 1px solid var(--agent-color);
+  outline-offset: 4px;
+  border-radius: 3px;
+}
+
+.agent-sound-toggle-mark {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  box-shadow: 0 0 7px currentColor;
+}
+
+html[data-agent-sound="on"] .agent-sound-toggle-mark {
+  background: var(--agent-color);
 }
 
 /* A restrained ambient response behind the existing WebGL scene. The actual
    crate lift and spotlight are driven in crate.js so the 2D fallback remains
    safe when WebGL is unavailable. */
+#canvas-container {
+  transform-origin: 50% 50%;
+  will-change: transform;
+}
+
+#canvas-container::before {
+  content: '';
+  position: absolute;
+  inset: 20% 22% 18%;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.045), rgba(3, 255, 0, 0.07) 32%, transparent 72%);
+  filter: blur(36px);
+  opacity: 0;
+  transform: scale(0.82);
+  transition: opacity 1s ease, transform 1.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 #canvas-container::after {
   content: '';
   position: absolute;
@@ -204,23 +394,49 @@ html[data-agent-mode="active"] .agent-mode-signal {
   z-index: 2;
   pointer-events: none;
   border-radius: 50%;
-  background: radial-gradient(ellipse at center, rgba(3, 255, 0, 0.1) 0%, rgba(3, 255, 0, 0.035) 35%, transparent 70%);
-  filter: blur(22px);
+  background: radial-gradient(ellipse at center, rgba(3, 255, 0, 0.085) 0%, rgba(3, 255, 0, 0.025) 38%, transparent 72%);
+  filter: blur(28px);
   opacity: 0;
-  transform: scale(0.94);
-  transition: opacity 0.8s ease, transform 1.2s ease;
+  transform: scale(0.9);
+  transition: opacity 0.9s ease, transform 1.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 html[data-agent-mode="loading"] #canvas-container::after,
 html[data-agent-mode="active"] #canvas-container::after,
 html[data-agent-mode="busy"] #canvas-container::after,
-html[data-agent-mode="standby"] #canvas-container::after {
+html[data-agent-mode="standby"] #canvas-container::after,
+html[data-agent-mode="returning"] #canvas-container::after,
+html[data-agent-mode="loading"] #canvas-container::before,
+html[data-agent-mode="active"] #canvas-container::before,
+html[data-agent-mode="busy"] #canvas-container::before,
+html[data-agent-mode="standby"] #canvas-container::before,
+html[data-agent-mode="returning"] #canvas-container::before {
   opacity: 1;
   transform: scale(1);
 }
 
-html[data-agent-mode="active"] #canvas-container::after {
-  opacity: 1;
+html[data-agent-mode="loading"] #canvas-container,
+html[data-agent-mode="busy"] #canvas-container {
+  animation: agentCrateFloat 5.5s ease-in-out infinite;
+}
+
+html[data-agent-mode="active"] #canvas-container,
+html[data-agent-mode="standby"] #canvas-container {
+  animation: agentCrateFloat 8s ease-in-out infinite;
+}
+
+html[data-agent-mode="returning"] #canvas-container {
+  animation: agentCrateReturn 0.95s ease-out both;
+}
+
+@keyframes agentCrateFloat {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(0, -2px, 0); }
+}
+
+@keyframes agentCrateReturn {
+  0% { transform: translate3d(0, -2px, 0) scale(1.002); }
+  100% { transform: translate3d(0, 0, 0) scale(1); }
 }
 
 /* Header */
@@ -1106,10 +1322,22 @@ html[data-agent-mode="active"] #canvas-container::after {
   }
 
   .agent-mode-hud {
-    top: 70px;
-    right: 16px;
+    top: 82px;
+    left: 50%;
+    right: auto;
+    width: min(248px, calc(100vw - 32px));
     min-width: 0;
     max-width: calc(100vw - 32px);
+    transform: translate3d(-50%, -12px, 0) scale(0.94);
+  }
+
+  html[data-agent-mode="loading"] .agent-mode-hud,
+  html[data-agent-mode="active"] .agent-mode-hud,
+  html[data-agent-mode="busy"] .agent-mode-hud,
+  html[data-agent-mode="standby"] .agent-mode-hud,
+  html[data-agent-mode="returning"] .agent-mode-hud,
+  html[data-agent-mode="override"] .agent-mode-hud {
+    transform: translate3d(-50%, 0, 0) scale(1);
   }
 }
 
@@ -1141,14 +1369,21 @@ html[data-agent-mode="active"] #canvas-container::after {
 
 @media (prefers-reduced-motion: reduce) {
   .agent-mode-hud,
+  .agent-mode-hud::before,
+  .agent-mode-hud::after,
+  #canvas-container::before,
   #canvas-container::after {
     transition-duration: 0.01ms;
   }
 
-  .agent-mode-signal,
-  html[data-agent-mode="loading"] .agent-mode-signal,
-  html[data-agent-mode="busy"] .agent-mode-signal,
-  html[data-agent-mode="active"] .agent-mode-signal {
+  .agent-mode-sigil,
+  .agent-mode-sigil::before,
+  .agent-mode-hud::after,
+  html[data-agent-mode="loading"] .agent-mode-sigil,
+  html[data-agent-mode="busy"] .agent-mode-sigil,
+  html[data-agent-mode="active"] .agent-mode-sigil,
+  html[data-agent-mode="standby"] .agent-mode-sigil,
+  #canvas-container {
     animation: none !important;
   }
 }
@@ -2738,6 +2973,27 @@ html[data-agent-mode="active"] #canvas-container::after {
 
   .details-panel {
     box-shadow: -10px 0 40px rgba(0, 0, 0, 0.06) !important;
+  }
+
+  .agent-mode-hud {
+    --agent-color: #13831b;
+    --agent-text: #1d1d1f;
+    --agent-muted: #6e6e73;
+    border-color: rgba(19, 131, 27, 0.2);
+    background:
+      radial-gradient(circle at 10% 10%, rgba(19, 131, 27, 0.1), transparent 34%),
+      linear-gradient(140deg, rgba(255, 255, 255, 0.8), rgba(245, 245, 247, 0.68));
+    box-shadow: 0 0 0 1px rgba(19, 131, 27, 0.03), 0 18px 45px rgba(0, 0, 0, 0.1);
+  }
+
+  .agent-mode-hud::before {
+    background: radial-gradient(ellipse at center, rgba(19, 131, 27, 0.12), rgba(19, 131, 27, 0.035) 38%, transparent 72%);
+  }
+
+  .agent-mode-hud::after {
+    border-color: rgba(19, 131, 27, 0.18);
+    border-left-color: transparent;
+    border-bottom-color: transparent;
   }
 
   .buy-button {

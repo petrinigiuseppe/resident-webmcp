@@ -13,32 +13,165 @@ import { buildCollectionStats, buildMusicDNA, getRecordId, scoreCatalog } from '
 
 const MAX_TOOL_OUTPUT_RECORDS = 12;
 const ACTIVE_STATES = new Set(['loading', 'active', 'busy', 'standby']);
+const AGENT_OPERATION_LABELS = {
+  human: 'HUMAN CONTROL',
+  loading: 'CONNECTING...',
+  listening: 'LISTENING...',
+  thinking: 'THINKING...',
+  orienting: 'ORIENTING...',
+  searching: 'SEARCHING...',
+  digging: 'DIGGING...',
+  focusing: 'MOVING PICKS...',
+  inspecting: 'INSPECTING...',
+  curating: 'CURATING...',
+  preparing: 'PREPARING REVIEW...',
+  human_override: 'HUMAN OVERRIDE',
+  returning: 'RELEASING...'
+};
+const RETURN_FOCUS_CLEAR_MS = 560;
+const RETURN_TO_HUMAN_MS = 960;
 
 let agentState = 'human';
+let agentOperation = 'human';
 let standbyTimer = null;
 let activityDepth = 0;
 let toolRegistrationComplete = false;
 let sessionStartedAt = null;
+let returnTransitionId = 0;
+let agentSoundEnabled = false;
+let agentAudioContext = null;
 
 function dispatch(name, detail = {}) {
   window.dispatchEvent(new CustomEvent(name, { detail }));
 }
 
+function inferAgentOperation(state, text = '') {
+  const normalized = String(text).toLowerCase();
+  if (state === 'busy') {
+    if (normalized.includes('dig') || normalized.includes('song dna')) return 'digging';
+    if (normalized.includes('search')) return 'searching';
+    if (normalized.includes('inspect')) return 'inspecting';
+    if (normalized.includes('orient')) return 'orienting';
+    if (normalized.includes('bring') || normalized.includes('front')) return 'focusing';
+    if (normalized.includes('add') || normalized.includes('remov')) return 'curating';
+    if (normalized.includes('checkout')) return 'preparing';
+    return 'thinking';
+  }
+
+  return {
+    human: 'human',
+    loading: 'loading',
+    active: 'listening',
+    standby: 'listening',
+    override: 'human_override',
+    returning: 'returning'
+  }[state] || 'thinking';
+}
+
+function updateSoundControl() {
+  const root = document.documentElement;
+  const toggle = document.getElementById('agent-sound-toggle');
+  const toggleLabel = document.getElementById('agent-sound-toggle-label');
+  root.dataset.agentSound = agentSoundEnabled ? 'on' : 'off';
+  if (!toggle) return;
+
+  toggle.hidden = agentState === 'human';
+  toggle.setAttribute('aria-pressed', String(agentSoundEnabled));
+  toggle.setAttribute(
+    'aria-label',
+    agentSoundEnabled ? 'Mute agent behavior sounds' : 'Unmute agent behavior sounds'
+  );
+  if (toggleLabel) toggleLabel.textContent = agentSoundEnabled ? 'SOUND ON' : 'SOUND OFF';
+}
+
+function getAgentAudioContext() {
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContext) return null;
+  if (!agentAudioContext) agentAudioContext = new AudioContext();
+  return agentAudioContext;
+}
+
+function playAgentCue(state, operation) {
+  if (!agentSoundEnabled || state === 'human') return;
+  const context = getAgentAudioContext();
+  if (!context) return;
+
+  const cues = {
+    loading: { frequency: 174, duration: 0.18, gain: 0.022, type: 'sine' },
+    active: { frequency: 246, duration: 0.24, gain: 0.018, type: 'sine' },
+    busy: { frequency: operation === 'digging' ? 132 : 158, duration: 0.12, gain: 0.015, type: 'triangle' },
+    returning: { frequency: 196, duration: 0.34, gain: 0.014, type: 'sine', slide: 156 }
+  };
+  const cue = cues[state] || cues.busy;
+  const play = () => {
+    if (!agentSoundEnabled) return;
+    const now = context.currentTime;
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = cue.type;
+    oscillator.frequency.setValueAtTime(cue.frequency, now);
+    if (cue.slide) oscillator.frequency.exponentialRampToValueAtTime(cue.slide, now + cue.duration);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(cue.gain, now + 0.025);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + cue.duration);
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start(now);
+    oscillator.stop(now + cue.duration + 0.02);
+  };
+
+  if (context.state === 'suspended') {
+    context.resume().then(play).catch(() => {});
+  } else {
+    play();
+  }
+}
+
+function setSoundEnabled(enabled) {
+  agentSoundEnabled = Boolean(enabled);
+  if (agentSoundEnabled) {
+    const context = getAgentAudioContext();
+    if (context?.state === 'suspended') context.resume().catch(() => {});
+  }
+  updateSoundControl();
+  if (agentSoundEnabled) playAgentCue('active', 'listening');
+  dispatch('seph-agent-sound', { enabled: agentSoundEnabled });
+}
+
+function installAgentSoundControl() {
+  const toggle = document.getElementById('agent-sound-toggle');
+  if (!toggle || toggle.dataset.bound === 'true') return;
+  toggle.dataset.bound = 'true';
+  toggle.addEventListener('click', event => {
+    event.preventDefault();
+    event.stopPropagation();
+    setSoundEnabled(!agentSoundEnabled);
+  });
+  updateSoundControl();
+}
+
 function setAgentState(state, detail = {}) {
+  const previousState = agentState;
+  const previousOperation = agentOperation;
+  if (state !== 'returning') returnTransitionId += 1;
   agentState = state;
+  agentOperation = detail.operation || inferAgentOperation(state, detail.text);
   document.documentElement.dataset.agentMode = state;
+  document.documentElement.dataset.agentOperation = agentOperation;
 
   const hud = document.getElementById('agent-mode-hud');
   const label = document.getElementById('agent-mode-label');
   const detailEl = document.getElementById('agent-mode-detail');
+  const operationEl = document.getElementById('agent-mode-operation');
   const live = document.getElementById('agent-mode-live');
   const labels = {
     human: 'Human Mode',
     loading: 'Agent Mode Loading...',
     active: 'Agent Mode Active',
-    busy: 'Agent Mode Working...',
-    standby: 'Agent Mode Standby',
-    override: 'Manual Override'
+    busy: 'Agent Mode Thinking...',
+    standby: 'Agent Mode Listening...',
+    override: 'Human Mode Override',
+    returning: 'Return to Human Mode'
   };
   const details = {
     human: 'WEBMCP // DORMANT',
@@ -46,15 +179,26 @@ function setAgentState(state, detail = {}) {
     active: 'SYNTHETIC CURATOR // READY',
     busy: detail.text || 'READING THE CRATE',
     standby: 'WAITING FOR THE NEXT DIRECTION',
-    override: 'HUMAN INPUT HAS PRIORITY'
+    override: 'HUMAN INPUT HAS PRIORITY',
+    returning: 'RETURNING THE CRATE TO HUMAN HANDS'
   };
+  const operationLabel = AGENT_OPERATION_LABELS[agentOperation] || AGENT_OPERATION_LABELS.thinking;
 
-  if (hud) hud.dataset.state = state;
+  if (hud) {
+    hud.dataset.state = state;
+    hud.dataset.operation = agentOperation;
+  }
   if (label) label.textContent = labels[state] || labels.human;
   if (detailEl) detailEl.textContent = detail.text || details[state] || '';
-  if (live && state !== 'human') live.textContent = labels[state] || '';
+  if (operationEl) operationEl.textContent = operationLabel;
+  if (live && state !== 'human') live.textContent = `${labels[state] || ''} ${operationLabel}`.trim();
+  updateSoundControl();
 
-  dispatch('seph-agent-state', { state, ...detail });
+  dispatch('seph-agent-state', { state, operation: agentOperation, ...detail });
+
+  if (previousState !== state || previousOperation !== agentOperation) {
+    playAgentCue(state, agentOperation);
+  }
 
   if (standbyTimer) {
     clearTimeout(standbyTimer);
@@ -73,6 +217,10 @@ function nextPaint() {
   return new Promise(resolve => {
     requestAnimationFrame(() => requestAnimationFrame(resolve));
   });
+}
+
+function wait(milliseconds) {
+  return new Promise(resolve => window.setTimeout(resolve, milliseconds));
 }
 
 function getCrateApi() {
@@ -228,11 +376,12 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
     },
     annotations: uiMutation,
     async execute(input = {}) {
-      return withAgentActivity('INITIALIZING PAGE TOOLS', async () => {
+      return (async () => {
+        returnTransitionId += 1;
         sessionStartedAt = new Date().toISOString();
-        setAgentState('loading', { text: 'CONNECTING TO PAGE TOOLS' });
+        setAgentState('loading', { text: 'CONNECTING TO PAGE TOOLS', operation: 'loading' });
         await nextPaint();
-        setAgentState('active');
+        setAgentState('active', { operation: 'listening' });
         const status = api.status();
         return {
           ok: true,
@@ -242,7 +391,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
           ...status,
           next_step: 'Use search_catalog for exact metadata search or dig_by_descriptor for Song DNA metadata matching.'
         };
-      });
+      })();
     }
   });
 
@@ -424,14 +573,33 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   await registerTool(modelContext, {
     name: 'end_curator_session',
     title: 'End Synesthetic Curator session',
-    description: 'Returns the page to Human Mode and clears agent-focused record styling. It does not alter My Crate.',
+    description: 'Returns the page to Human Mode through a soft handoff and clears agent-focused record styling. It does not alter My Crate.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: uiMutation,
     async execute() {
-      setAgentState('human');
+      const transitionId = ++returnTransitionId;
+      setAgentState('returning', {
+        text: 'RETURNING THE CRATE TO HUMAN HANDS',
+        operation: 'returning'
+      });
+      await nextPaint();
+      await wait(RETURN_FOCUS_CLEAR_MS);
+      if (transitionId !== returnTransitionId) {
+        return resultError('SESSION_TRANSITION_INTERRUPTED', 'The return to Human Mode was interrupted by a new agent session.');
+      }
       api.clearAgentFocus();
       sessionStartedAt = null;
-      return { ok: true, agent_mode: 'human', crate_unchanged: true };
+      await wait(Math.max(0, RETURN_TO_HUMAN_MS - RETURN_FOCUS_CLEAR_MS));
+      if (transitionId !== returnTransitionId) {
+        return resultError('SESSION_TRANSITION_INTERRUPTED', 'The return to Human Mode was interrupted by a new agent session.');
+      }
+      setAgentState('human', { operation: 'human' });
+      return {
+        ok: true,
+        agent_mode: 'human',
+        transition: 'soft_return',
+        crate_unchanged: true
+      };
     }
   });
 
@@ -456,6 +624,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
 
 async function boot() {
   installHumanOverride();
+  installAgentSoundControl();
   try {
     const api = await waitForCrateApi();
     const modelContext = getAvailableModelContext();

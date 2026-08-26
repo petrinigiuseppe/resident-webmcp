@@ -170,7 +170,7 @@
     .fallback-card-btn.primary-btn { border-color: #03ff00; color: #03ff00; }
   </style>
   <!-- Stylesheets -->
-  <link id="crate-stylesheet" rel="stylesheet" href="/crate/style.css?v=202607241539">
+  <link id="crate-stylesheet" rel="stylesheet" href="/crate/style.css?v=20260826-webmcp-m3">
   <script>
     (function () {
       var root = document.documentElement;
@@ -211,7 +211,7 @@
           recoveryAttempted = true;
           recoveryTimer = window.setTimeout(function () {
             if (confirmStyles()) return;
-            stylesheet.href = '/crate/style.css?v=202607241539&recovery=' + Date.now();
+            stylesheet.href = '/crate/style.css?v=20260826-webmcp-m3&recovery=' + Date.now();
           }, 80);
         }
 
@@ -309,11 +309,21 @@
     <!-- Agent-native status surface. Hidden until a page agent actually starts a session. -->
     <section id="agent-mode-hud" class="agent-mode-hud" data-state="human" role="status" aria-live="polite" aria-atomic="true">
       <div class="agent-mode-hud-line">
-        <span class="agent-mode-signal" aria-hidden="true"></span>
+        <span class="agent-mode-sigil" aria-hidden="true">
+          <span class="agent-eye agent-eye-left"></span>
+          <span class="agent-eye agent-eye-right"></span>
+        </span>
         <span class="agent-mode-kicker">WEBMCP // SYNTHETIC CURATOR</span>
       </div>
       <strong id="agent-mode-label" class="agent-mode-label">Human Mode</strong>
       <span id="agent-mode-detail" class="agent-mode-detail">WEBMCP // DORMANT</span>
+      <div class="agent-mode-footer">
+        <span id="agent-mode-operation" class="agent-mode-operation">HUMAN CONTROL</span>
+        <button id="agent-sound-toggle" class="agent-sound-toggle" type="button" aria-label="Unmute agent behavior sounds" aria-pressed="false" hidden>
+          <span class="agent-sound-toggle-mark" aria-hidden="true"></span>
+          <span id="agent-sound-toggle-label">SOUND OFF</span>
+        </button>
+      </div>
     </section>
     <div id="agent-mode-live" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 
@@ -555,7 +565,7 @@
 
   <!-- Three.js Local Script Loading -->
   <script type="module" src="/crate/crate.js?v=202607241539"></script>
-  <script type="module" src="/crate/webmcp.js?v=20260826-webmcp-m2"></script>
+  <script type="module" src="/crate/webmcp.js?v=20260826-webmcp-m3"></script>
   <script>
     // Inline failsafe script for loading stuck / script crash
     setTimeout(function() {
