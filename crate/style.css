@@ -1729,6 +1729,11 @@ html[data-agent-mode="returning"] .mobile-agent-hint {
     display: flex;
   }
 
+  /* Mobile keeps the mode hint lightweight; sound remains desktop-only for now. */
+  .agent-sound-toggle {
+    display: none !important;
+  }
+
   .agent-debug-trigger {
     left: 16px;
     bottom: 88px;
