@@ -1878,12 +1878,15 @@ function syncAgentCrateFrame() {
 function createAgentCrateAura(group) {
   if (!group) return;
   const points = AGENT_CRATE_AURA_POINTS.map(([x, y, z]) => new THREE.Vector3(x, y, z));
-  const curve = new THREE.CatmullRomCurve3(points, true, 'centripetal');
-  const geometry = new THREE.TubeGeometry(curve, 48, 0.0085, 6, true);
+  const curve = new THREE.CurvePath();
+  points.forEach((point, index) => {
+    curve.add(new THREE.LineCurve3(point, points[(index + 1) % points.length]));
+  });
+  const geometry = new THREE.TubeGeometry(curve, 48, 0.0055, 6, true);
   const haloMaterial = new THREE.MeshBasicMaterial({
     color: 0x80e69a,
     transparent: true,
-    opacity: 0.16,
+    opacity: 0.12,
     depthTest: true,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
@@ -1892,7 +1895,7 @@ function createAgentCrateAura(group) {
   const coreMaterial = new THREE.MeshBasicMaterial({
     color: 0x80e69a,
     transparent: true,
-    opacity: 0.68,
+    opacity: 0.52,
     depthTest: true,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
@@ -1920,9 +1923,9 @@ function syncAgentCrateAura(now = performance.now(), reducedMotion = false) {
     core.visible = visible;
     if (!visible) return;
 
-    const busyBoost = agentVisualState === 'busy' ? 1.14 : 1;
-    halo.material.opacity = (0.13 + pulse * 0.07) * busyBoost;
-    core.material.opacity = (0.56 + pulse * 0.18) * busyBoost;
+    const busyBoost = agentVisualState === 'busy' ? 1.08 : 1;
+    halo.material.opacity = (0.10 + pulse * 0.06) * busyBoost;
+    core.material.opacity = (0.44 + pulse * 0.14) * busyBoost;
   });
 }
 
