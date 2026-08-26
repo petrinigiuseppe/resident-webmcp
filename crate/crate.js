@@ -89,17 +89,9 @@ const agentFrameProjection = new THREE.Vector3();
 let agentFrameViewBox = '';
 
 // The first frame implementation was an HTML SVG overlay. Keep that
-// projection for diagnostics/fallback, but render the visible aura in Three.js
-// so depth testing prevents it from drawing through opened sleeves.
-const AGENT_CRATE_AURA_POINTS = [
-  [-0.184, 0.124, -0.19],
-  [0.184, 0.124, -0.19],
-  [0.184, 0.004, 0.19],
-  [0.184, -0.166, 0.19],
-  [-0.184, -0.166, 0.19],
-  [-0.184, 0.004, 0.19]
-];
+// projection for diagnostics/fallback, while the soft ambient aura is rendered in Three.js.
 let agentCrateAuraInstances = [];
+let agentAuraTexture = null;
 
 let resolveCrateApiReady;
 window.__CRATE_API_READY_PROMISE__ = new Promise(resolve => {
@@ -127,6 +119,10 @@ let currentPlayingTrackItem = null;
 let siteAudioEnabled = true;
 let uiAudioContext = null;
 let lastNavigationTickAt = 0;
+const AGENT_NAVIGATION_MIX = {
+  human: 0.038,
+  agent: 0.050
+};
 
 // Initialize Application
 document.addEventListener('DOMContentLoaded', () => {
@@ -178,6 +174,7 @@ function getUiAudioContext() {
         uiAudioContext = sharedContext;
       } else {
         uiAudioContext = new AudioContext();
+        window.__SEPH_AGENT_AUDIO_CONTEXT__ = uiAudioContext;
       }
     } catch (error) {
       return null;
@@ -186,13 +183,13 @@ function getUiAudioContext() {
   return uiAudioContext;
 }
 
-// Navigation feedback is a short, low-frequency granular texture rather than
-// a bright UI bleep. It follows the site-wide sound toggle and can be called by
-// both human browsing and the agent's sequential digging preview.
+// Navigation feedback is a subtle, tactile mechanical crate tick.
+// It follows the site-wide sound toggle and routes through the shared AudioContext,
+// providing clear auditory feedback for human browsing and sequential agent digging.
 function playCrateNavigationTick(direction = 1, { agent = false } = {}) {
   if (!siteAudioEnabled) return;
   const nowWall = performance.now();
-  const throttleMs = agent ? 120 : 60;
+  const throttleMs = agent ? 90 : 45;
   if (nowWall - lastNavigationTickAt < throttleMs) return;
   lastNavigationTickAt = nowWall;
 
@@ -202,39 +199,40 @@ function playCrateNavigationTick(direction = 1, { agent = false } = {}) {
   const play = () => {
     if (!siteAudioEnabled) return;
     const now = context.currentTime;
-    const duration = agent ? 0.18 : 0.13;
+    const duration = agent ? 0.065 : 0.048;
     const frameCount = Math.max(1, Math.floor(context.sampleRate * duration));
     const buffer = context.createBuffer(1, frameCount, context.sampleRate);
     const samples = buffer.getChannelData(0);
     let lowFrequencyNoise = 0;
+    const baseFreq = agent
+      ? (direction > 0 ? 680 : 540)
+      : (direction > 0 ? 760 : 620);
+    const decayRate = 28 / duration;
+
     for (let index = 0; index < frameCount; index += 1) {
+      const t = index / context.sampleRate;
       const whiteNoise = Math.random() * 2 - 1;
-      lowFrequencyNoise = lowFrequencyNoise * 0.965 + whiteNoise * 0.035;
-      const envelope = Math.sin(Math.PI * (index / Math.max(1, frameCount - 1)));
-      samples[index] = lowFrequencyNoise * 2.8 * envelope;
+      lowFrequencyNoise = lowFrequencyNoise * 0.72 + whiteNoise * 0.28;
+      const env = Math.exp(-t * decayRate);
+      const tone = Math.sin(2 * Math.PI * (baseFreq - t * 350) * t);
+      samples[index] = (tone * 0.65 + lowFrequencyNoise * 0.35) * env;
     }
 
     const source = context.createBufferSource();
     const filter = context.createBiquadFilter();
     const gain = context.createGain();
     source.buffer = buffer;
-    source.playbackRate.setValueAtTime(agent ? 0.82 : 0.95, now);
     filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(
-      agent
-        ? (direction > 0 ? 330 : 260)
-        : (direction > 0 ? 470 : 380),
-      now
-    );
-    filter.Q.setValueAtTime(0.55, now);
-    gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(agent ? 0.026 : 0.016, now + 0.022);
+    filter.frequency.setValueAtTime(agent ? 2200 : 2600, now);
+    filter.Q.setValueAtTime(0.7, now);
+    const peakGain = agent ? AGENT_NAVIGATION_MIX.agent : AGENT_NAVIGATION_MIX.human;
+    gain.gain.setValueAtTime(peakGain, now);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
     source.connect(filter);
     filter.connect(gain);
     gain.connect(context.destination);
     source.start(now);
-    source.stop(now + duration + 0.02);
+    source.stop(now + duration + 0.01);
   };
 
   if (context.state === 'suspended') {
@@ -1875,40 +1873,48 @@ function syncAgentCrateFrame() {
   frame.dataset.crateView = isUserCrateViewActive ? 'my-crate' : 'shop';
 }
 
+function getAgentAuraTexture() {
+  if (agentAuraTexture) return agentAuraTexture;
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  const gradient = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+  gradient.addColorStop(0, 'rgba(128, 230, 154, 0.95)');
+  gradient.addColorStop(0.3, 'rgba(128, 230, 154, 0.58)');
+  gradient.addColorStop(0.6, 'rgba(128, 230, 154, 0.18)');
+  gradient.addColorStop(0.85, 'rgba(128, 230, 154, 0.03)');
+  gradient.addColorStop(1, 'rgba(128, 230, 154, 0)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, 256, 256);
+  agentAuraTexture = new THREE.CanvasTexture(canvas);
+  return agentAuraTexture;
+}
+
 function createAgentCrateAura(group) {
   if (!group) return;
-  const points = AGENT_CRATE_AURA_POINTS.map(([x, y, z]) => new THREE.Vector3(x, y, z));
-  const curve = new THREE.CurvePath();
-  points.forEach((point, index) => {
-    curve.add(new THREE.LineCurve3(point, points[(index + 1) % points.length]));
-  });
-  const geometry = new THREE.TubeGeometry(curve, 48, 0.0055, 6, true);
-  const haloMaterial = new THREE.MeshBasicMaterial({
+  const texture = getAgentAuraTexture();
+  const geometry = new THREE.PlaneGeometry(0.78, 0.78);
+  const material = new THREE.MeshBasicMaterial({
+    map: texture,
     color: 0x80e69a,
     transparent: true,
-    opacity: 0.12,
+    opacity: 0,
     depthTest: true,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
     toneMapped: false
   });
-  const coreMaterial = new THREE.MeshBasicMaterial({
-    color: 0x80e69a,
-    transparent: true,
-    opacity: 0.52,
-    depthTest: true,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-    toneMapped: false
-  });
-  const halo = new THREE.Mesh(geometry, haloMaterial);
-  const core = new THREE.Mesh(geometry, coreMaterial);
-  halo.renderOrder = 20;
-  core.renderOrder = 21;
-  halo.frustumCulled = false;
-  core.frustumCulled = false;
-  group.add(halo, core);
-  agentCrateAuraInstances.push({ group, halo, core });
+  const auraPlane = new THREE.Mesh(geometry, material);
+  auraPlane.rotation.x = -Math.PI / 2;
+  // Placed at the crate base to provide a soft aura attached to the 3D crate without clipping sleeves
+  auraPlane.position.set(0, -0.164, 0);
+  auraPlane.renderOrder = 1;
+  auraPlane.frustumCulled = false;
+  auraPlane.visible = false;
+  group.add(auraPlane);
+  agentCrateAuraInstances.push({ group, mesh: auraPlane, material });
 }
 
 function syncAgentCrateAura(now = performance.now(), reducedMotion = false) {
@@ -1917,23 +1923,20 @@ function syncAgentCrateAura(now = performance.now(), reducedMotion = false) {
   const activeGroup = isUserCrateViewActive ? userCrateGroup : crateGroup;
   const pulse = reducedMotion ? 1 : 0.5 + (Math.sin(now * 0.00065) * 0.5 + 0.5) * 0.5;
 
-  agentCrateAuraInstances.forEach(({ group, halo, core }) => {
+  agentCrateAuraInstances.forEach(({ group, mesh, material }) => {
     const visible = isActive && group === activeGroup;
-    halo.visible = visible;
-    core.visible = visible;
+    mesh.visible = visible;
     if (!visible) return;
 
-    const busyBoost = agentVisualState === 'busy' ? 1.08 : 1;
-    halo.material.opacity = (0.10 + pulse * 0.06) * busyBoost;
-    core.material.opacity = (0.44 + pulse * 0.14) * busyBoost;
+    const busyBoost = agentVisualState === 'busy' ? 1.12 : 1;
+    material.opacity = (0.22 + pulse * 0.12) * busyBoost;
   });
 }
 
 function syncAgentCrateAuraTheme(isLightMode) {
   const color = isLightMode ? 0x1f7f3a : 0x80e69a;
-  agentCrateAuraInstances.forEach(({ halo, core }) => {
-    halo.material.color.setHex(color);
-    core.material.color.setHex(color);
+  agentCrateAuraInstances.forEach(({ material }) => {
+    material.color.setHex(color);
   });
 }
 
@@ -2649,11 +2652,6 @@ function showRecordDetails(index) {
 
   // Set elements
   document.getElementById('detail-cover').src = item.image;
-  const playerCoverImg = document.getElementById('player-play-cover');
-  if (playerCoverImg && item.image) {
-    playerCoverImg.src = item.image;
-    playerCoverImg.classList.remove('hidden');
-  }
   document.getElementById('detail-title').innerText = item.title;
   document.getElementById('detail-artist').innerText = item.artist;
   document.getElementById('detail-price').innerText = item.price_text || 'Buy';
@@ -2896,10 +2894,19 @@ function onCanvasTouchEnd(e) {
   }
 }
 
+function findReleaseByTrackId(trackId) {
+  if (!trackId) return null;
+  const list = (masterCatalog && masterCatalog.length > 0) ? masterCatalog : catalog;
+  return list.find(release => release.tracks && release.tracks.some(t => t.id === trackId)) || null;
+}
+
 // Audio Player Functionality
 function playTrack(track, trackItemElement) {
   const player = document.getElementById('custom-player');
   const playerTitle = document.getElementById('player-track-title');
+  const playerCover = document.getElementById('player-play-cover');
+  const playerCoverLink = document.getElementById('player-cover-link');
+  const playerReleaseLink = document.getElementById('player-release-link');
   const playIcon = document.querySelector('.play-icon');
   const pauseIcon = document.querySelector('.pause-icon');
 
@@ -2913,14 +2920,41 @@ function playTrack(track, trackItemElement) {
   }
 
   currentPlayingTrackItem = trackItemElement;
-  currentPlayingTrackItem.classList.add('active');
+  if (currentPlayingTrackItem) {
+    currentPlayingTrackItem.classList.add('active');
+  }
   currentPlayingTrackId = track.id;
+
+  // Resolve parent release from catalog / masterCatalog by track id
+  const parentRelease = findReleaseByTrackId(track.id)
+    || (track.release_id ? findMasterCatalogItem(track.release_id) : null)
+    || (catalog && catalog[activeIndex])
+    || null;
+
+  if (parentRelease) {
+    if (playerCover && parentRelease.image) {
+      playerCover.src = parentRelease.image;
+      playerCover.alt = `${parentRelease.title || 'Record'} Cover`;
+      playerCover.classList.remove('hidden');
+    }
+    const releaseUrl = parentRelease.page_url || '#';
+    if (playerCoverLink) {
+      playerCoverLink.href = releaseUrl;
+      playerCoverLink.setAttribute('aria-label', `View ${parentRelease.title || 'release'} page`);
+      playerCoverLink.setAttribute('title', `View ${parentRelease.title || 'release'} page`);
+    }
+    if (playerReleaseLink) {
+      playerReleaseLink.href = releaseUrl;
+      playerReleaseLink.setAttribute('aria-label', `View ${parentRelease.title || 'release'} page`);
+      playerReleaseLink.setAttribute('title', `View ${parentRelease.title || 'release'} page`);
+    }
+  }
 
   audio.src = track.preview_url;
   audio.play()
     .then(() => {
       player.classList.remove('hidden');
-      playerTitle.innerText = track.title;
+      if (playerTitle) playerTitle.innerText = track.title;
       if (playIcon) playIcon.classList.add('hidden');
       if (pauseIcon) pauseIcon.classList.remove('hidden');
       const playPauseBtn = document.getElementById('player-play-btn');
@@ -2963,16 +2997,21 @@ function pauseAudio() {
 }
 
 function playNextTrack() {
-  const currentItem = catalog[activeIndex];
-  if (!currentItem || !currentItem.tracks) return;
+  const parentRelease = findReleaseByTrackId(currentPlayingTrackId);
+  if (!parentRelease || !parentRelease.tracks) return;
 
-  const nextTrackIndex = currentItem.tracks.findIndex(t => t.id === currentPlayingTrackId) + 1;
+  const nextTrackIndex = parentRelease.tracks.findIndex(t => t.id === currentPlayingTrackId) + 1;
 
-  if (nextTrackIndex < currentItem.tracks.length) {
-    const trackItems = document.querySelectorAll('.track-item');
-    if (trackItems[nextTrackIndex]) {
-      trackItems[nextTrackIndex].click();
+  if (nextTrackIndex < parentRelease.tracks.length) {
+    const nextTrack = parentRelease.tracks[nextTrackIndex];
+    const currentDetailSlug = document.getElementById('buy-btn')?.getAttribute('data-slug');
+    const parentSlug = parentRelease.page_url?.split('/').pop();
+    let trackItemEl = null;
+    if (currentDetailSlug === parentSlug) {
+      const trackItems = document.querySelectorAll('.track-item');
+      if (trackItems[nextTrackIndex]) trackItemEl = trackItems[nextTrackIndex];
     }
+    playTrack(nextTrack, trackItemEl);
   }
 }
 

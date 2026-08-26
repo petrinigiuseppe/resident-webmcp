@@ -170,7 +170,7 @@
     .fallback-card-btn.primary-btn { border-color: #03ff00; color: #03ff00; }
   </style>
   <!-- Stylesheets -->
-    <link id="crate-stylesheet" rel="stylesheet" href="/crate/style.css?v=20260826-webmcp-m24">
+    <link id="crate-stylesheet" rel="stylesheet" href="/crate/style.css?v=20260826-webmcp-m25">
   <script>
     (function () {
       var root = document.documentElement;
@@ -211,7 +211,7 @@
           recoveryAttempted = true;
           recoveryTimer = window.setTimeout(function () {
             if (confirmStyles()) return;
-      stylesheet.href = '/crate/style.css?v=20260826-webmcp-m24&recovery=' + Date.now();
+      stylesheet.href = '/crate/style.css?v=20260826-webmcp-m25&recovery=' + Date.now();
           }, 80);
         }
 
@@ -317,16 +317,13 @@
       </div>
     </div>
 
-    <!-- Agent-native status surface. Human Mode rests quietly until a page agent starts a session. -->
+    <!-- Agent-native status surface. Compact, site-coherent status surface beside the 3D crate. -->
     <section id="agent-mode-hud" class="agent-mode-hud" data-state="human" role="status" aria-live="polite" aria-atomic="true" hidden>
-      <!-- Kept as a compatibility hook for the WebMCP surface check; presence is now a soft inner field, not eyes. -->
+      <!-- Kept as a compatibility hook for the WebMCP surface check -->
       <span class="agent-mode-sigil" aria-hidden="true" hidden></span>
-      <span class="agent-mode-core" aria-hidden="true"></span>
-      <div class="agent-mode-copy">
+      <div class="agent-mode-header">
+        <span class="agent-mode-indicator" aria-hidden="true"></span>
         <strong id="agent-mode-label" class="agent-mode-label">HUMAN MODE</strong>
-        <span id="agent-mode-detail" class="agent-mode-detail">READY FOR YOUR SELECTION</span>
-      </div>
-      <div class="agent-mode-footer">
         <button id="agent-sound-toggle" class="agent-sound-toggle" data-agent-sound-toggle type="button" aria-label="Unmute agent behavior sounds" title="Unmute agent behavior sounds" aria-pressed="false" hidden>
           <span class="agent-sound-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" focusable="false">
@@ -339,6 +336,7 @@
           <span id="agent-sound-toggle-label" class="sr-only">Sound off</span>
         </button>
       </div>
+      <span id="agent-mode-detail" class="agent-mode-detail">READY FOR YOUR SELECTION</span>
     </section>
     <section id="agent-mode-intro" class="agent-mode-intro" role="status" aria-live="assertive" aria-atomic="true" hidden>
       <div class="agent-intro-copy">
@@ -460,15 +458,19 @@
         <!-- Custom Audio Player Bar (floating at the bottom of the panel) -->
         <div id="custom-player" class="custom-player hidden">
           <div class="player-controls">
-            <button id="player-play-btn" class="play-btn" aria-label="Play/Pause">
+            <a id="player-cover-link" class="player-cover-link" href="#" target="_blank" rel="noopener" aria-label="View release page" title="View release page">
               <img id="player-play-cover" class="player-cover-thumb hidden" alt="Record Cover" />
+            </a>
+            <button id="player-play-btn" class="play-btn" aria-label="Play/Pause" type="button">
               <div class="player-play-overlay">
                 <svg class="play-icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
                 <svg class="pause-icon hidden" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
               </div>
             </button>
             <div class="player-track-info">
-              <div id="player-track-title" class="track-title-ticker">No track playing</div>
+              <a id="player-release-link" class="player-release-link track-title-ticker" href="#" target="_blank" rel="noopener" title="View release page">
+                <span id="player-track-title">No track playing</span>
+              </a>
               <div class="player-progress-container">
                 <span id="player-current-time" class="time-label">0:00</span>
                 <div id="player-progress-bar" class="progress-bar-bg">
@@ -610,8 +612,8 @@
   </div>
 
   <!-- Three.js Local Script Loading -->
-  <script type="module" src="/crate/crate.js?v=20260826-webmcp-m24"></script>
-  <script type="module" src="/crate/webmcp.js?v=20260826-webmcp-m24"></script>
+  <script type="module" src="/crate/crate.js?v=20260826-webmcp-m25"></script>
+  <script type="module" src="/crate/webmcp.js?v=20260826-webmcp-m25"></script>
   <script>
     // Inline failsafe script for loading stuck / script crash
     setTimeout(function() {

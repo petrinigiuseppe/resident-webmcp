@@ -52,6 +52,12 @@ let agentAudioContext = null;
 let pendingAgentActivationCue = false;
 let debugActionPromise = null;
 let agentIntroTimer = null;
+const AGENT_BEHAVIOR_MIX = {
+  activation: 0.045,
+  active: 0.040,
+  busy: 0.036,
+  returning: 0.036
+};
 let agentIntroHasShown = false;
 let agentModeHasBeenEntered = false;
 
@@ -111,8 +117,13 @@ function getAgentAudioContext() {
   const AudioContext = window.AudioContext || window.webkitAudioContext;
   if (!AudioContext) return null;
   if (!agentAudioContext) {
-    agentAudioContext = new AudioContext();
-    window.__SEPH_AGENT_AUDIO_CONTEXT__ = agentAudioContext;
+    const sharedContext = window.__SEPH_AGENT_AUDIO_CONTEXT__;
+    if (sharedContext && typeof sharedContext.createGain === 'function') {
+      agentAudioContext = sharedContext;
+    } else {
+      agentAudioContext = new AudioContext();
+      window.__SEPH_AGENT_AUDIO_CONTEXT__ = agentAudioContext;
+    }
   }
   return agentAudioContext;
 }
@@ -145,7 +156,7 @@ function playAgentCue(state, operation) {
       filter.frequency.setValueAtTime(2200, now);
       filter.Q.setValueAtTime(0.35, now);
       master.gain.setValueAtTime(0.0001, now);
-      master.gain.exponentialRampToValueAtTime(0.022, now + 0.34);
+      master.gain.exponentialRampToValueAtTime(AGENT_BEHAVIOR_MIX.activation, now + 0.34);
       master.gain.exponentialRampToValueAtTime(0.0001, now + introDuration - 0.16);
       delay.delayTime.setValueAtTime(0.38, now);
       tail.gain.setValueAtTime(0.1, now);
@@ -184,9 +195,9 @@ function playAgentCue(state, operation) {
   }
 
   const cues = {
-    active: { frequency: 246, duration: 0.24, gain: 0.024, type: 'sine' },
-    busy: { frequency: operation === 'digging' ? 132 : 158, duration: 0.12, gain: 0.021, type: 'triangle' },
-    returning: { frequency: 196, duration: 0.34, gain: 0.020, type: 'sine', slide: 156 }
+    active: { frequency: 246, duration: 0.24, gain: AGENT_BEHAVIOR_MIX.active, type: 'sine' },
+    busy: { frequency: operation === 'digging' ? 132 : 158, duration: 0.12, gain: AGENT_BEHAVIOR_MIX.busy, type: 'triangle' },
+    returning: { frequency: 196, duration: 0.34, gain: AGENT_BEHAVIOR_MIX.returning, type: 'sine', slide: 156 }
   };
   const cue = cues[state];
   if (!cue) return;
