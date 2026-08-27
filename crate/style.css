@@ -3492,9 +3492,9 @@ html[data-agent-mode="returning"] .mobile-agent-hint {
   }
 
   .price-tag {
-    color: var(--text-primary) !important;
-    background: rgba(0, 0, 0, 0.04) !important;
-    border-color: rgba(0, 0, 0, 0.08) !important;
+    color: #176b2a !important;
+    background: rgba(23, 107, 42, 0.08) !important;
+    border-color: rgba(23, 107, 42, 0.2) !important;
   }
 
   .player-cover-link {
@@ -3709,35 +3709,35 @@ html[data-agent-mode="returning"] .mobile-agent-hint {
   }
 
   .buy-button {
-    background: #1d1d1f !important;
-    border-color: #1d1d1f !important;
-    color: #ffffff !important;
+    background: #03ff00 !important;
+    border-color: #03ff00 !important;
+    color: #121212 !important;
     font-family: var(--font-sans) !important;
     font-weight: 600 !important;
     font-size: 0.85rem !important;
     letter-spacing: 0.08em !important;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05) !important;
+    box-shadow: 0 4px 15px rgba(3, 255, 0, 0.16) !important;
   }
 
   .buy-button:hover {
     background: transparent !important;
-    color: #1d1d1f !important;
-    border-color: #1d1d1f !important;
-    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1) !important;
+    color: #176b2a !important;
+    border-color: #176b2a !important;
+    box-shadow: 0 8px 25px rgba(23, 107, 42, 0.18) !important;
   }
 
   .buy-button.in-crate {
     background: transparent !important;
-    color: #1d1d1f !important;
-    border-color: #1d1d1f !important;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05) !important;
+    color: #176b2a !important;
+    border-color: #176b2a !important;
+    box-shadow: 0 4px 15px rgba(23, 107, 42, 0.12) !important;
   }
 
   .buy-button.in-crate:hover {
-    background: rgba(0, 0, 0, 0.06) !important;
-    color: #000000 !important;
-    border-color: #000000 !important;
-    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1) !important;
+    background: rgba(23, 107, 42, 0.08) !important;
+    color: #176b2a !important;
+    border-color: #176b2a !important;
+    box-shadow: 0 8px 25px rgba(23, 107, 42, 0.18) !important;
   }
 
   .play-btn {
@@ -3860,16 +3860,17 @@ html[data-agent-mode="returning"] .mobile-agent-hint {
   }
 
   .checkout-btn {
-    background: rgba(0, 0, 0, 0.03) !important;
-    border-color: rgba(0, 0, 0, 0.12) !important;
-    color: var(--text-primary) !important;
-    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.04) !important;
+    background: #03ff00 !important;
+    border-color: #03ff00 !important;
+    color: #121212 !important;
+    box-shadow: 0 8px 22px 0 rgba(3, 255, 0, 0.16) !important;
   }
 
   .checkout-btn:hover {
-    background: rgba(0, 0, 0, 0.08) !important;
-    border-color: rgba(0, 0, 0, 0.2) !important;
-    box-shadow: 0 0 12px rgba(0, 0, 0, 0.06), 0 8px 32px 0 rgba(0, 0, 0, 0.08) !important;
+    background: transparent !important;
+    border-color: #176b2a !important;
+    color: #176b2a !important;
+    box-shadow: 0 0 16px rgba(23, 107, 42, 0.14), 0 8px 24px 0 rgba(0, 0, 0, 0.08) !important;
   }
 
   .checkout-btn:disabled {
