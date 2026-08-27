@@ -2754,6 +2754,10 @@ function showRecordDetails(index) {
   item.tracks.forEach((track, tIdx) => {
     const li = document.createElement('li');
     li.className = 'track-item';
+    // Keep the release context on the row. Track IDs are not globally unique
+    // across the catalog (a compilation may include a track from another
+    // release), so playback must retain the release the user actually opened.
+    li.dataset.releaseRecordId = getCrateRecordId(item);
     if (currentPlayingTrackId === track.id) {
       li.classList.add('active');
       currentPlayingTrackItem = li;
@@ -2955,9 +2959,18 @@ function playTrack(track, trackItemElement) {
   }
   currentPlayingTrackId = track.id;
 
-  // Resolve parent release from catalog / masterCatalog by track id
-  const parentRelease = findReleaseByTrackId(track.id)
+  // Resolve the parent from the visible tracklist first. Track IDs can repeat
+  // in compilation records, so a global ID lookup alone can choose the wrong
+  // cover and make the player link return to the wrong sleeve.
+  const rowRelease = trackItemElement?.dataset?.releaseRecordId
+    ? findMasterCatalogItem(trackItemElement.dataset.releaseRecordId)
+    : null;
+  const detailSlug = document.getElementById('buy-btn')?.getAttribute('data-slug');
+  const detailRelease = detailSlug ? findMasterCatalogItem(detailSlug) : null;
+  const parentRelease = rowRelease
+    || detailRelease
     || (track.release_id ? findMasterCatalogItem(track.release_id) : null)
+    || findReleaseByTrackId(track.id)
     || (catalog && catalog[activeIndex])
     || null;
 
