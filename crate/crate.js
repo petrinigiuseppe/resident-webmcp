@@ -457,6 +457,11 @@ function focusRecordById(recordId) {
     return { ok: false, error: { code: 'RECORD_NOT_VISIBLE', message: 'Record is not visible in the current crate state.' } };
   }
 
+  // A browsing preview may temporarily move through sleeves before the tool
+  // settles on its final record. Mark explicit agent navigation as intentional
+  // so the preview cleanup does not restore and close the previous sidebar.
+  if (isAgentNavigationOperationActive()) agentFocusRevision += 1;
+
   const prevIndex = isUserCrateViewActive ? userActiveIndex : activeIndex;
   isUserCrateViewActive = false;
   globalCamXOffset = 0;
