@@ -46,18 +46,17 @@ let toolRegistrationComplete = false;
 let sessionStartedAt = null;
 let returnTransitionId = 0;
 // Agent Mode sound cues are intentionally enabled for the first session so
-// the activation handoff is audible. The user can mute them from the compact
-// desktop utility that replaces the former side HUD.
+// the activation handoff is audible. The user can mute them from the orb.
 let agentSoundEnabled = true;
 let agentAudioContext = null;
 let pendingAgentActivationCue = false;
 let debugActionPromise = null;
 let agentIntroTimer = null;
 const AGENT_BEHAVIOR_MIX = {
-  activation: 0.045,
-  active: 0.040,
-  busy: 0.036,
-  returning: 0.036
+  activation: 0.070,
+  active: 0.060,
+  busy: 0.052,
+  returning: 0.052
 };
 let agentIntroHasShown = false;
 let agentModeHasBeenEntered = false;
@@ -759,10 +758,15 @@ function clampFloatingSurfaceToViewport(element, margin = DRAG_MARGIN_PX) {
   element.style.transform = 'translate3d(0, 0, 0) scale(1)';
 }
 
+function installAgentHudDrag() {
+  installDragHandle(document.getElementById('agent-mode-hud'));
+}
+
 function installFloatingSurfaceViewportGuard() {
   let frame = null;
   const sync = () => {
     frame = null;
+    clampFloatingSurfaceToViewport(document.getElementById('agent-mode-hud'));
     clampFloatingSurfaceToViewport(document.getElementById('agent-debug-panel'));
   };
   const schedule = () => {
@@ -1166,6 +1170,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
 async function boot() {
   installHumanOverride();
   installAgentSoundControl();
+  installAgentHudDrag();
   installAgentAudioUnlock();
   installFloatingSurfaceViewportGuard();
   try {

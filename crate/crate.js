@@ -129,8 +129,8 @@ let siteAudioEnabled = true;
 let uiAudioContext = null;
 let lastNavigationTickAt = 0;
 const AGENT_NAVIGATION_MIX = {
-  human: 0.038,
-  agent: 0.050
+  human: 0.055,
+  agent: 0.070
 };
 
 // Initialize Application
