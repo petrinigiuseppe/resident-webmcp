@@ -170,7 +170,7 @@
     .fallback-card-btn.primary-btn { border-color: #03ff00; color: #03ff00; }
   </style>
   <!-- Stylesheets -->
-    <link id="crate-stylesheet" rel="stylesheet" href="/crate/style.css?v=20260826-webmcp-m25">
+    <link id="crate-stylesheet" rel="stylesheet" href="/crate/style.css?v=20260826-webmcp-m26">
   <script>
     (function () {
       var root = document.documentElement;
@@ -211,7 +211,7 @@
           recoveryAttempted = true;
           recoveryTimer = window.setTimeout(function () {
             if (confirmStyles()) return;
-      stylesheet.href = '/crate/style.css?v=20260826-webmcp-m25&recovery=' + Date.now();
+      stylesheet.href = '/crate/style.css?v=20260826-webmcp-m26&recovery=' + Date.now();
           }, 80);
         }
 
@@ -317,27 +317,27 @@
       </div>
     </div>
 
-    <!-- Agent-native status surface. Compact, site-coherent status surface beside the 3D crate. -->
+    <!-- Agent-native status hook. The visible status is the top/mobile hint; no side card. -->
     <section id="agent-mode-hud" class="agent-mode-hud" data-state="human" role="status" aria-live="polite" aria-atomic="true" hidden>
       <!-- Kept as a compatibility hook for the WebMCP surface check -->
       <span class="agent-mode-sigil" aria-hidden="true" hidden></span>
       <div class="agent-mode-header">
         <span class="agent-mode-indicator" aria-hidden="true"></span>
         <strong id="agent-mode-label" class="agent-mode-label">HUMAN MODE</strong>
-        <button id="agent-sound-toggle" class="agent-sound-toggle" data-agent-sound-toggle type="button" aria-label="Unmute agent behavior sounds" title="Unmute agent behavior sounds" aria-pressed="false" hidden>
-          <span class="agent-sound-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" focusable="false">
-              <path class="agent-sound-speaker" d="M5 10v4h3l4 3V7l-4 3H5Z"></path>
-              <path class="agent-sound-wave" d="M15 9.5a4 4 0 0 1 0 5"></path>
-              <path class="agent-sound-wave" d="M17.8 7a8 8 0 0 1 0 10"></path>
-              <path class="agent-sound-mute" d="m15.5 9.5 5 5m0-5-5 5"></path>
-            </svg>
-          </span>
-          <span id="agent-sound-toggle-label" class="sr-only">Sound off</span>
-        </button>
       </div>
       <span id="agent-mode-detail" class="agent-mode-detail">READY FOR YOUR SELECTION</span>
     </section>
+    <button id="agent-sound-toggle" class="agent-sound-toggle agent-sound-toggle-floating" data-agent-sound-toggle type="button" aria-label="Unmute agent behavior sounds" title="Unmute agent behavior sounds" aria-pressed="false" hidden>
+      <span class="agent-sound-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" focusable="false">
+          <path class="agent-sound-speaker" d="M5 10v4h3l4 3V7l-4 3H5Z"></path>
+          <path class="agent-sound-wave" d="M15 9.5a4 4 0 0 1 0 5"></path>
+          <path class="agent-sound-wave" d="M17.8 7a8 8 0 0 1 0 10"></path>
+          <path class="agent-sound-mute" d="m15.5 9.5 5 5m0-5-5 5"></path>
+        </svg>
+      </span>
+      <span id="agent-sound-toggle-label" class="sr-only">Sound off</span>
+    </button>
     <section id="agent-mode-intro" class="agent-mode-intro" role="status" aria-live="assertive" aria-atomic="true" hidden>
       <div class="agent-intro-copy">
         <strong id="agent-mode-intro-label">AGENT MODE ACTIVATED</strong>
@@ -367,7 +367,6 @@
         <button class="agent-debug-action agent-debug-action-return" type="button" data-agent-debug-action="return">Return to human</button>
       </div>
       <p class="agent-debug-note">Local preview only. Uses the existing crate controls. Checkout stays human-controlled.</p>
-      <button id="agent-debug-resize" class="agent-debug-resize" type="button" aria-label="Resize agent debug panel" title="Resize agent debug panel"></button>
     </aside>
 
     <!-- Active Crate Controls (Unified Glassy Container) -->
@@ -458,7 +457,7 @@
         <!-- Custom Audio Player Bar (floating at the bottom of the panel) -->
         <div id="custom-player" class="custom-player hidden">
           <div class="player-controls">
-            <a id="player-cover-link" class="player-cover-link" href="#" target="_blank" rel="noopener" aria-label="View release page" title="View release page">
+            <a id="player-cover-link" class="player-cover-link" href="#release" aria-label="Focus release in crate" title="Focus release in crate">
               <img id="player-play-cover" class="player-cover-thumb hidden" alt="Record Cover" />
             </a>
             <button id="player-play-btn" class="play-btn" aria-label="Play/Pause" type="button">
@@ -468,7 +467,7 @@
               </div>
             </button>
             <div class="player-track-info">
-              <a id="player-release-link" class="player-release-link track-title-ticker" href="#" target="_blank" rel="noopener" title="View release page">
+              <a id="player-release-link" class="player-release-link track-title-ticker" href="#release" aria-label="Focus release in crate" title="Focus release in crate">
                 <span id="player-track-title">No track playing</span>
               </a>
               <div class="player-progress-container">
@@ -612,8 +611,8 @@
   </div>
 
   <!-- Three.js Local Script Loading -->
-  <script type="module" src="/crate/crate.js?v=20260826-webmcp-m25"></script>
-  <script type="module" src="/crate/webmcp.js?v=20260826-webmcp-m25"></script>
+  <script type="module" src="/crate/crate.js?v=20260826-webmcp-m26"></script>
+  <script type="module" src="/crate/webmcp.js?v=20260826-webmcp-m26"></script>
   <script>
     // Inline failsafe script for loading stuck / script crash
     setTimeout(function() {

@@ -74,6 +74,15 @@ let agentDigPreviewToken = 0;
 let agentDigPreviewIndex = -1;
 let agentDigPreviewSnapshot = null;
 
+function isAgentNavigationOperationActive() {
+  return agentVisualState === 'busy'
+    && (agentVisualOperation === 'digging' || agentVisualOperation === 'browsing');
+}
+
+function isAgentNavigationPreviewActive() {
+  return isAgentNavigationOperationActive() && !isUserCrateViewActive;
+}
+
 // The agent frame is projected from the actual crate silhouette instead of
 // being a viewport-shaped decoration. These local-space points follow the
 // outer crate edges for both the shop and personal crate meshes.
@@ -146,7 +155,7 @@ window.addEventListener('seph-agent-state', event => {
   } else {
     resetInactivityTimer();
   }
-  if (agentVisualState === 'busy' && agentVisualOperation === 'digging') {
+  if (isAgentNavigationOperationActive()) {
     startAgentDigPreview();
   } else {
     stopAgentDigPreview();
@@ -448,6 +457,7 @@ function focusRecordById(recordId) {
     return { ok: false, error: { code: 'RECORD_NOT_VISIBLE', message: 'Record is not visible in the current crate state.' } };
   }
 
+  const prevIndex = isUserCrateViewActive ? userActiveIndex : activeIndex;
   isUserCrateViewActive = false;
   globalCamXOffset = 0;
   const shopBtn = document.getElementById('view-shop-btn');
@@ -455,6 +465,9 @@ function focusRecordById(recordId) {
   if (shopBtn) shopBtn.classList.add('active');
   if (myCrateBtn) myCrateBtn.classList.remove('active');
   selectRecord(visibleIndex);
+  if (visibleIndex !== prevIndex && !isAgentNavigationPreviewActive()) {
+    playCrateNavigationTick(visibleIndex >= prevIndex ? 1 : -1, { agent: agentVisualState !== 'human' });
+  }
   return { ok: true, record: summarizeCrateItem(item), view: 'shop', index: visibleIndex };
 }
 
@@ -586,6 +599,7 @@ function publishCrateApi() {
     setSearchQuery,
     focusRecord: focusRecordById,
     openRecordDetails: focusRecordById,
+    playNavigationTick: (direction = 1, options = { agent: true }) => playCrateNavigationTick(direction, options),
     getLocalCrateRecordIds: () => readLocalCrateItems().slice(),
     focusRecords: recordIds => {
       const normalizedIds = [...new Set((recordIds || []).map(value => String(value).trim()).filter(Boolean))];
@@ -1151,7 +1165,22 @@ function initUI() {
 
   // Custom Audio Player Listeners
   const playPauseBtn = document.getElementById('player-play-btn');
-  playPauseBtn.addEventListener('click', toggleAudioPlayback);
+  if (playPauseBtn) playPauseBtn.addEventListener('click', toggleAudioPlayback);
+
+  const handlePlayerReleaseFocus = (e) => {
+    e.preventDefault();
+    const recordId = e.currentTarget?.dataset.recordId
+      || getCrateRecordId(findReleaseByTrackId(currentPlayingTrackId))
+      || getCrateRecordId(catalog && catalog[activeIndex]);
+    if (recordId) {
+      focusRecordById(recordId);
+    }
+  };
+
+  const playerCoverLink = document.getElementById('player-cover-link');
+  const playerReleaseLink = document.getElementById('player-release-link');
+  if (playerCoverLink) playerCoverLink.addEventListener('click', handlePlayerReleaseFocus);
+  if (playerReleaseLink) playerReleaseLink.addEventListener('click', handlePlayerReleaseFocus);
 
   audio.addEventListener('timeupdate', () => {
     const fill = document.getElementById('player-progress-fill');
@@ -2398,9 +2427,7 @@ function startStaggeredLoading() {
 
 // Helper to update record mesh heights based on selection state
 function updateRecordHeights() {
-  const agentPreviewActive = agentVisualState === 'busy'
-    && agentVisualOperation === 'digging'
-    && !isUserCrateViewActive;
+  const agentPreviewActive = isAgentNavigationPreviewActive();
   recordsData.forEach((rec, idx) => {
     if (agentPreviewActive && idx === agentDigPreviewIndex) {
       rec.targetYOffset = 0.12;
@@ -2478,7 +2505,7 @@ function startAgentDigPreview() {
     focusRevision: agentFocusRevision
   };
 
-  // An agent dig is a shop-wide operation. If the user was looking at My
+  // An agent navigation preview is a shop-wide operation. If the user was looking at My
   // Crate, move to the shop surface before the first preview sleeve rises.
   if (isUserCrateViewActive) {
     const shopBtn = document.getElementById('view-shop-btn');
@@ -2495,9 +2522,7 @@ function startAgentDigPreview() {
   const tick = () => {
     if (
       previewToken !== agentDigPreviewToken
-      || agentVisualState !== 'busy'
-      || agentVisualOperation !== 'digging'
-      || isUserCrateViewActive
+      || !isAgentNavigationPreviewActive()
     ) return;
 
     const availableIndexes = recordsData
@@ -2932,21 +2957,28 @@ function playTrack(track, trackItemElement) {
     || null;
 
   if (parentRelease) {
+    const recordId = getCrateRecordId(parentRelease);
     if (playerCover && parentRelease.image) {
       playerCover.src = parentRelease.image;
       playerCover.alt = `${parentRelease.title || 'Record'} Cover`;
       playerCover.classList.remove('hidden');
     }
-    const releaseUrl = parentRelease.page_url || '#';
+    const releaseUrl = recordId ? `#record-${recordId}` : (parentRelease.page_url || '#');
     if (playerCoverLink) {
       playerCoverLink.href = releaseUrl;
-      playerCoverLink.setAttribute('aria-label', `View ${parentRelease.title || 'release'} page`);
-      playerCoverLink.setAttribute('title', `View ${parentRelease.title || 'release'} page`);
+      if (recordId) playerCoverLink.dataset.recordId = recordId;
+      playerCoverLink.removeAttribute('target');
+      playerCoverLink.removeAttribute('rel');
+      playerCoverLink.setAttribute('aria-label', `Focus ${parentRelease.title || 'release'} in crate`);
+      playerCoverLink.setAttribute('title', `Focus ${parentRelease.title || 'release'} in crate`);
     }
     if (playerReleaseLink) {
       playerReleaseLink.href = releaseUrl;
-      playerReleaseLink.setAttribute('aria-label', `View ${parentRelease.title || 'release'} page`);
-      playerReleaseLink.setAttribute('title', `View ${parentRelease.title || 'release'} page`);
+      if (recordId) playerReleaseLink.dataset.recordId = recordId;
+      playerReleaseLink.removeAttribute('target');
+      playerReleaseLink.removeAttribute('rel');
+      playerReleaseLink.setAttribute('aria-label', `Focus ${parentRelease.title || 'release'} in crate`);
+      playerReleaseLink.setAttribute('title', `Focus ${parentRelease.title || 'release'} in crate`);
     }
   }
 
@@ -3113,9 +3145,7 @@ function animate() {
   // 3. Records Physics Simulation
   const H = 0.31; // height
   const yPivot = -0.15; // bottom support axis
-  const agentDiggingPreviewActive = agentVisualState === 'busy'
-    && agentVisualOperation === 'digging'
-    && !isUserCrateViewActive;
+  const agentDiggingPreviewActive = isAgentNavigationPreviewActive();
 
   recordsData.forEach((rec, idx) => {
     if (idx < activeIndex) {

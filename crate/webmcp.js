@@ -46,7 +46,8 @@ let toolRegistrationComplete = false;
 let sessionStartedAt = null;
 let returnTransitionId = 0;
 // Agent Mode sound cues are intentionally enabled for the first session so
-// the activation handoff is audible. The user can mute them from the HUD.
+// the activation handoff is audible. The user can mute them from the compact
+// desktop utility that replaces the former side HUD.
 let agentSoundEnabled = true;
 let agentAudioContext = null;
 let pendingAgentActivationCue = false;
@@ -91,6 +92,10 @@ function inferAgentOperation(state, text = '') {
     override: 'human_override',
     returning: 'returning'
   }[state] || 'thinking';
+}
+
+function isIdleAgentStatus(state = agentState, operation = agentOperation) {
+  return (state === 'active' || state === 'standby') && operation === 'listening';
 }
 
 function updateSoundControl() {
@@ -364,12 +369,20 @@ function setAgentState(state, detail = {}) {
   if (label) label.textContent = labels[state] || labels.human;
   if (detailEl) detailEl.textContent = hudDetail;
   if (mobileLabel) {
-    mobileLabel.textContent = state === 'human' || state === 'override'
-      ? labels[state] || labels.human
-      : `${labels[state] || labels.loading} · ${hudOperation}`;
+    if (state === 'human' || state === 'override') {
+      mobileLabel.textContent = labels[state] || labels.human;
+    } else {
+      mobileLabel.textContent = isIdleAgentStatus(state, agentOperation)
+        ? (labels[state] || 'AGENT MODE')
+        : `${labels[state] || 'AGENT MODE'} · ${hudOperation}`;
+    }
   }
   updateAgentPresenceVisibility();
-  if (live && state !== 'human') live.textContent = `${labels[state] || ''} ${hudOperation}`.trim();
+  if (live && state !== 'human') {
+    live.textContent = isIdleAgentStatus(state, agentOperation)
+      ? (labels[state] || 'AGENT MODE')
+      : `${labels[state] || ''} ${hudOperation}`.trim();
+  }
   updateSoundControl();
 
   if (state === 'human') clearAgentIntro();
@@ -521,11 +534,23 @@ function isDebugModeEnabled() {
   return DEBUG_QUERY_KEYS.some(key => ['1', 'true', 'on'].includes(String(params.get(key) || '').toLowerCase()));
 }
 
-function getDebugSampleIds(api) {
-  return (api.getMasterCatalog?.() || [])
-    .slice(0, 3)
-    .map(item => getRecordId(item))
-    .filter(Boolean);
+function getDebugSampleIds(api, { offset = 0, count = 3 } = {}) {
+  const visible = api.getVisibleCatalog?.() || api.getMasterCatalog?.() || [];
+  if (visible.length === 0) return [];
+  const state = api.getState?.();
+  const currentIndex = typeof state?.active_index === 'number' && state.active_index >= 0
+    ? state.active_index
+    : 0;
+  const sampleIds = [];
+  for (let step = 1; step <= Math.min(count, visible.length); step += 1) {
+    const item = visible[(currentIndex + step + offset - 1) % visible.length];
+    const id = getRecordId(item);
+    if (id && !sampleIds.includes(id)) sampleIds.push(id);
+  }
+  if (sampleIds.length === 0) {
+    return visible.slice(0, count).map(item => getRecordId(item)).filter(Boolean);
+  }
+  return sampleIds;
 }
 
 function getDebugCrateRecordId(api) {
@@ -552,7 +577,13 @@ async function runDebugAction(api, action) {
   await ensureDebugSession(api);
 
   if (action === 'sequence') {
-    await withAgentActivity('Browsing the crate', () => wait(620));
+    await withAgentActivity('Browsing the crate', async () => {
+      const ids = getDebugSampleIds(api, { offset: 1, count: 2 });
+      for (const id of ids) {
+        api.openRecordDetails?.(id) || api.focusRecord(id);
+        await wait(280);
+      }
+    });
     await withAgentActivity('Thinking about the request', () => wait(760));
     return withAgentActivity('Digging through Song DNA', async () => {
       const result = scoreCatalog(getCatalog(), 'warm house groove for a late night drive', { maxResults: 5 });
@@ -591,12 +622,12 @@ async function runDebugAction(api, action) {
 
   if (action === 'browsing') {
     return withAgentActivity('Browsing the crate', async () => {
-      const ids = getDebugSampleIds(api);
+      const ids = getDebugSampleIds(api, { offset: 1, count: 3 });
       const sidebarRecordIds = [];
       for (const id of ids) {
         const focused = api.openRecordDetails?.(id) || api.focusRecord(id);
         if (focused?.ok) sidebarRecordIds.push(id);
-        await wait(260);
+        await wait(280);
       }
       return {
         ok: true,
@@ -703,79 +734,6 @@ function installDragHandle(element, handle = element, { desktopOnly = true } = {
   });
 }
 
-function installResizeHandle(element, handle) {
-  if (!element || !handle || handle.dataset.resizeBound === 'true') return;
-  handle.dataset.resizeBound = 'true';
-
-  const clamp = (value, min, max) => Math.min(Math.max(value, min), Math.max(min, max));
-
-  handle.addEventListener('pointerdown', event => {
-    if (event.button !== undefined && event.button !== 0) return;
-
-    const rect = element.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return;
-
-    const computed = window.getComputedStyle(element);
-    const minWidth = parseFloat(computed.minWidth) || 0;
-    const minHeight = parseFloat(computed.minHeight) || 0;
-    const maxWidth = Math.min(
-      parseFloat(computed.maxWidth) || window.innerWidth,
-      Math.max(minWidth, window.innerWidth - rect.left - DRAG_MARGIN_PX)
-    );
-    const maxHeight = Math.min(
-      parseFloat(computed.maxHeight) || window.innerHeight,
-      Math.max(minHeight, window.innerHeight - rect.top - DRAG_MARGIN_PX)
-    );
-    const startX = event.clientX;
-    const startY = event.clientY;
-    const startWidth = rect.width;
-    const startHeight = rect.height;
-    const pointerId = event.pointerId;
-    const isSamePointer = nextEvent => (
-      pointerId === undefined || nextEvent.pointerId === undefined || nextEvent.pointerId === pointerId
-    );
-
-    element.style.left = `${rect.left}px`;
-    element.style.top = `${rect.top}px`;
-    element.style.right = 'auto';
-    element.style.bottom = 'auto';
-    element.style.transform = 'translate3d(0, 0, 0) scale(1)';
-    element.style.width = `${rect.width}px`;
-    element.style.height = `${rect.height}px`;
-    element.classList.add('is-resizing');
-
-    const onMove = moveEvent => {
-      if (!isSamePointer(moveEvent)) return;
-      const nextWidth = clamp(startWidth + (moveEvent.clientX - startX), minWidth, maxWidth);
-      const nextHeight = clamp(startHeight + (moveEvent.clientY - startY), minHeight, maxHeight);
-      element.style.width = `${nextWidth}px`;
-      element.style.height = `${nextHeight}px`;
-    };
-
-    const onEnd = endEvent => {
-      if (!isSamePointer(endEvent)) return;
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onEnd);
-      window.removeEventListener('pointercancel', onEnd);
-      if (pointerId !== undefined && handle.hasPointerCapture?.(pointerId)) {
-        handle.releasePointerCapture(pointerId);
-      }
-      element.classList.remove('is-resizing');
-    };
-
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onEnd);
-    window.addEventListener('pointercancel', onEnd);
-    if (pointerId !== undefined) handle.setPointerCapture?.(pointerId);
-    event.preventDefault();
-    event.stopPropagation();
-  });
-}
-
-function installAgentHudDrag() {
-  installDragHandle(document.getElementById('agent-mode-hud'));
-}
-
 function clampFloatingSurfaceToViewport(element, margin = DRAG_MARGIN_PX) {
   if (!element || element.hidden) return;
 
@@ -805,7 +763,6 @@ function installFloatingSurfaceViewportGuard() {
   let frame = null;
   const sync = () => {
     frame = null;
-    clampFloatingSurfaceToViewport(document.getElementById('agent-mode-hud'));
     clampFloatingSurfaceToViewport(document.getElementById('agent-debug-panel'));
   };
   const schedule = () => {
@@ -820,9 +777,18 @@ function installFloatingSurfaceViewportGuard() {
 function updateDebugPanel() {
   const status = document.getElementById('agent-debug-status');
   if (!status) return;
-  const label = document.getElementById('agent-mode-label')?.textContent || 'Human Mode';
-  const operation = AGENT_OPERATION_LABELS[document.documentElement.dataset.agentOperation] || AGENT_OPERATION_LABELS.human;
-  status.textContent = `${label} · ${operation}`;
+  const currentMode = document.documentElement.dataset.agentMode || agentState;
+  const currentOp = document.documentElement.dataset.agentOperation || agentOperation;
+  if (currentMode === 'human' || currentMode === 'override') {
+    status.textContent = 'Human Mode';
+    return;
+  }
+  if (isIdleAgentStatus(currentMode, currentOp)) {
+    status.textContent = 'AGENT MODE';
+  } else {
+    const opLabel = AGENT_OPERATION_LABELS[currentOp] || currentOp;
+    status.textContent = `AGENT MODE · ${toHudText(opLabel)}`;
+  }
 }
 
 function installDebugPanel(api) {
@@ -831,7 +797,6 @@ function installDebugPanel(api) {
   const trigger = document.getElementById('agent-debug-trigger');
   const panel = document.getElementById('agent-debug-panel');
   const close = document.getElementById('agent-debug-close');
-  const resize = document.getElementById('agent-debug-resize');
   const status = document.getElementById('agent-debug-status');
   const actions = [...document.querySelectorAll('[data-agent-debug-action]')];
   if (!trigger || !panel || !close || !status || actions.length === 0) return;
@@ -839,9 +804,8 @@ function installDebugPanel(api) {
   document.documentElement.dataset.agentDebug = 'enabled';
   panel.hidden = false;
   trigger.hidden = true;
-  // Both panel gestures are real pointer surfaces on desktop and touch.
+  // The panel header remains a real pointer surface on desktop and touch.
   installDragHandle(panel, panel.querySelector('.agent-debug-header'), { desktopOnly: false });
-  installResizeHandle(panel, resize);
   clampFloatingSurfaceToViewport(panel);
 
   const setOpen = open => {
@@ -1203,7 +1167,6 @@ async function boot() {
   installHumanOverride();
   installAgentSoundControl();
   installAgentAudioUnlock();
-  installAgentHudDrag();
   installFloatingSurfaceViewportGuard();
   try {
     const api = await waitForCrateApi();
