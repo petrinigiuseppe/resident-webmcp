@@ -3,12 +3,15 @@
  * SPDX-License-Identifier: MPL-2.0
  * Copyright (c) 2026 Giuseppe Petrini / Seph Martin
  *
- * A deliberately conservative metadata index for the WebMCP demo.  The live
+ * A deliberately conservative metadata index for the WebMCP demo. The live
  * catalog currently contains titles, descriptions, source tags and track
- * metadata, but not authoritative BPM, key or audio features.  This module
- * never fabricates those fields: missing dimensions are returned explicitly
- * so the agent can describe the limits of the current crate honestly.
+ * metadata, but not authoritative BPM, key or audio features. This module
+ * never fabricates those fields: metadata-derived dimensions carry source
+ * evidence, while audio fields remain explicitly unavailable.
  */
+
+const DNA_SCHEMA_VERSION = 'music-dna-lite.v1';
+const DNA_SCHEMA_REVISION = 2;
 
 const STOP_WORDS = new Set([
   'a', 'an', 'and', 'are', 'at', 'be', 'but', 'by', 'for', 'from', 'give',
@@ -16,64 +19,127 @@ const STOP_WORDS = new Set([
   'that', 'the', 'this', 'to', 'with', 'you', 'your'
 ]);
 
-const SIGNAL_GROUPS = [
-  {
-    id: 'warmth',
-    label: 'warm / analog warmth',
-    terms: ['warm', 'warmth', 'analog', 'analogue', 'tape', 'soulful', 'dusty']
-  },
-  {
-    id: 'dreamy',
-    label: 'dreamy / atmospheric',
-    terms: ['dreamy', 'dream', 'dreamlike', 'atmospheric', 'ethereal', 'ambient', 'sunrise']
-  },
-  {
-    id: 'dark',
-    label: 'dark / late-night',
-    terms: ['dark', 'deep', 'late night', 'late-night', '3am', '4am', 'basement', 'afterhours', 'afters']
-  },
-  {
-    id: 'punch',
-    label: 'punchy / percussive',
-    terms: ['punchy', 'punch', 'driving', 'percussive', 'raw', 'banger', '909', '808', 'kick']
-  },
-  {
-    id: 'groove',
-    label: 'groove / swing',
-    terms: ['groove', 'groovy', 'swing', 'swinging', 'syncopated', 'rolling', 'funky', 'shuffle']
-  },
-  {
-    id: 'broken',
-    label: 'broken / breakbeat',
-    terms: ['broken', 'breakbeat', 'breaks', 'half-time', 'half time', 'polyrhythmic']
-  },
-  {
-    id: 'club',
-    label: 'club / dancefloor',
-    terms: ['club', 'club-ready', 'club ready', 'dancefloor', 'dance floor', 'warehouse', 'peak-time', 'peak time', 'tool']
-  },
-  {
-    id: 'chicago',
-    label: 'Chicago reference',
-    terms: ['chicago']
-  },
-  {
-    id: 'detroit',
-    label: 'Detroit reference',
-    terms: ['detroit']
-  },
-  {
-    id: 'london',
-    label: 'London reference',
-    terms: ['london']
-  },
-  {
-    id: 'berlin',
-    label: 'Berlin reference',
-    terms: ['berlin']
-  }
+const NEGATION_WORDS = new Set([
+  'avoid', 'excluding', 'exclude', 'less', 'no', 'not', 'without'
+]);
+
+const SOURCE_WEIGHTS = Object.freeze({
+  catalog_tags: 1,
+  release_identity: 0.76,
+  release_description: 0.72,
+  track_titles: 0.68
+});
+
+const SOURCE_LABELS = Object.freeze({
+  catalog_tags: 'declared catalog tag',
+  release_identity: 'release or artist metadata',
+  release_description: 'release description',
+  track_titles: 'track title'
+});
+
+const PROFILE_DIMENSIONS = [
+  'genre',
+  'mood',
+  'groove',
+  'energy',
+  'scene',
+  'culture',
+  'era',
+  'instrumentation',
+  'vocals',
+  'structure'
 ];
 
+/*
+ * These are vocabulary bridges, not audio labels. A match means that the
+ * word/phrase exists in a catalog tag, description, release identity or
+ * track title. Keep ids stable because descriptor_parse exposes them to the
+ * host agent.
+ */
+const SIGNAL_GROUPS = [
+  // Genre / format
+  { id: 'house', dimension: 'genre', label: 'house', terms: ['house'] },
+  { id: 'tech_house', dimension: 'genre', label: 'tech house', terms: ['tech house', 'tech-house'] },
+  { id: 'disco_house', dimension: 'genre', label: 'disco house', terms: ['disco house'] },
+  { id: 'funky_house', dimension: 'genre', label: 'funky house', terms: ['funky house'] },
+  { id: 'deep_house', dimension: 'genre', label: 'deep house', terms: ['deep house'] },
+  { id: 'disco', dimension: 'genre', label: 'disco', terms: ['disco'] },
+  { id: 'nu_disco', dimension: 'genre', label: 'nu disco', terms: ['nu disco', 'nu-disco'] },
+  { id: '90s_house', dimension: 'genre', label: '90s house', terms: ['90s house', '90s-house'] },
+  { id: 'french_house', dimension: 'genre', label: 'French house', terms: ['french house'] },
+  { id: 'soulful_house', dimension: 'genre', label: 'soulful house', terms: ['soulful house'] },
+  { id: 'minimal_tech', dimension: 'genre', label: 'minimal tech', terms: ['minimal tech', 'minimal techno'] },
+  { id: 'techno', dimension: 'genre', label: 'techno', terms: ['techno'] },
+  { id: 'vocal_house', dimension: 'genre', label: 'vocal house', terms: ['vocal house'] },
+  { id: 'electronic', dimension: 'genre', label: 'electronic', terms: ['electronic'] },
+  { id: 'trap', dimension: 'genre', label: 'trap', terms: ['trap'] },
+  { id: 'rap', dimension: 'genre', label: 'rap', terms: ['rap'] },
+  { id: 'hip_hop', dimension: 'genre', label: 'hip hop', terms: ['hip hop', 'hip-hop'] },
+
+  // Mood / affect
+  { id: 'warmth', dimension: 'mood', label: 'warm / analog warmth', terms: ['warm', 'warmth', 'analog', 'analogue', 'tape', 'dusty'] },
+  { id: 'dreamy', dimension: 'mood', label: 'dreamy / atmospheric', terms: ['dreamy', 'dream', 'dreamlike', 'atmospheric', 'ethereal', 'ambient', 'sunrise'] },
+  { id: 'dark', dimension: 'mood', label: 'dark / late-night', terms: ['dark', 'deep', 'late night', 'late-night', '3am', '3 am', '4am', '4 am', 'basement', 'afterhours', 'after-hours', 'afters'] },
+  { id: 'hopeful', dimension: 'mood', label: 'hopeful / uplifting', terms: ['hope', 'hopeful', 'uplifting', 'bright', 'optimistic'] },
+  { id: 'euphoric', dimension: 'mood', label: 'euphoric', terms: ['euphoria', 'euphoric'] },
+  { id: 'emotive', dimension: 'mood', label: 'emotive / emotional', terms: ['emotive', 'emotional', 'emotion'] },
+  { id: 'nostalgic', dimension: 'mood', label: 'nostalgic', terms: ['nostalgia', 'nostalgic'] },
+  { id: 'soulful', dimension: 'mood', label: 'soulful', terms: ['soulful', 'soul'] },
+  { id: 'playful', dimension: 'mood', label: 'playful / vibrant', terms: ['playful', 'vibrant', 'fun'] },
+  { id: 'introspective', dimension: 'mood', label: 'introspective', terms: ['introspective', 'introspection'] },
+
+  // Groove / rhythm language available in copy
+  { id: 'groove', dimension: 'groove', label: 'groove / swing', terms: ['groove', 'groovy', 'swing', 'swinging', 'syncopated', 'rolling', 'funky', 'shuffle'] },
+  { id: 'punch', dimension: 'energy', label: 'punchy / percussive', terms: ['punchy', 'punch', 'driving', 'percussive', 'raw', 'banger', '909', '808', 'kick'] },
+  { id: 'broken', dimension: 'groove', label: 'broken / breakbeat', terms: ['broken', 'breakbeat', 'breaks', 'half-time', 'half time', 'polyrhythmic'] },
+  { id: 'bassline', dimension: 'groove', label: 'bassline-led', terms: ['bassline', 'basslines', 'bass'] },
+
+  // Energy / context
+  { id: 'club', dimension: 'scene', label: 'club / dancefloor', terms: ['club', 'club-ready', 'club ready', 'dancefloor', 'dance floor', 'tool'] },
+  { id: 'peak_time', dimension: 'energy', label: 'peak-time / high energy', terms: ['peak-time', 'peak time', 'peak', 'high-energy', 'high energy', 'relentless', 'high impact'] },
+  { id: 'driving', dimension: 'energy', label: 'driving', terms: ['driving', 'drive'] },
+  { id: 'warehouse', dimension: 'scene', label: 'warehouse / underground', terms: ['warehouse', 'underground'] },
+  { id: 'radio', dimension: 'scene', label: 'radio', terms: ['radio'] },
+  { id: 'festival', dimension: 'scene', label: 'festival', terms: ['festival'] },
+  { id: 'headphones', dimension: 'scene', label: 'headphones', terms: ['headphones'] },
+
+  // Cultural / geographic references
+  { id: 'chicago', dimension: 'culture', label: 'Chicago reference', terms: ['chicago'] },
+  { id: 'detroit', dimension: 'culture', label: 'Detroit reference', terms: ['detroit'] },
+  { id: 'new_york', dimension: 'culture', label: 'New York reference', terms: ['new york', 'new-york', 'ny mix'] },
+  { id: 'london', dimension: 'culture', label: 'London reference', terms: ['london'] },
+  { id: 'berlin', dimension: 'culture', label: 'Berlin reference', terms: ['berlin'] },
+  { id: 'naples', dimension: 'culture', label: 'Naples reference', terms: ['naples', 'napoli'] },
+
+  // Era references in copy/tags, not measured production era
+  { id: 'era_70s', dimension: 'era', label: '70s reference', terms: ['70s', '70s dance', 'seventies'] },
+  { id: 'era_80s', dimension: 'era', label: '80s reference', terms: ['80s', '80s dance', 'eighties'] },
+  { id: 'era_90s', dimension: 'era', label: '90s reference', terms: ['90s', '90s trance', 'nineties'] },
+  { id: 'era_00s', dimension: 'era', label: '00s reference', terms: ['00s', '2000s', 'early 2000s'] },
+  { id: 'era_10s', dimension: 'era', label: '10s reference', terms: ['10s', '2010s'] },
+  { id: 'era_20s', dimension: 'era', label: '20s reference', terms: ['20s', '2020s'] },
+
+  // Instrument / vocal mentions in text
+  { id: 'piano', dimension: 'instrumentation', label: 'piano / keys', terms: ['piano', 'keys', 'key melody'] },
+  { id: 'synth', dimension: 'instrumentation', label: 'synth / synthesizer', terms: ['synth', 'synths', 'synth-pop', 'synthesizer'] },
+  { id: 'strings', dimension: 'instrumentation', label: 'strings', terms: ['strings', 'string'] },
+  { id: 'guitar', dimension: 'instrumentation', label: 'guitar', terms: ['guitar'] },
+  { id: 'sample', dimension: 'instrumentation', label: 'sample-led', terms: ['sample', 'samples', 'sampling'] },
+  { id: 'drums', dimension: 'instrumentation', label: 'drums / percussion', terms: ['drums', 'drum', 'percussion', 'percussions'] },
+  { id: 'vocals', dimension: 'vocals', label: 'vocal presence mention', terms: ['vocal', 'vocals', 'voice', 'voices', 'singer', 'singing', 'lyrics'] },
+
+  // Arrangement / release-format language
+  { id: 'extended', dimension: 'structure', label: 'extended mix', terms: ['extended', 'long mix'] },
+  { id: 'radio_edit', dimension: 'structure', label: 'radio edit', terms: ['radio edit', 'radio mix'] },
+  { id: 'dub', dimension: 'structure', label: 'dub mix', terms: ['dub', 'dub mix'] },
+  { id: 'remix', dimension: 'structure', label: 'remix', terms: ['remix', 'remixes', 'rework', 'reworks'] },
+  { id: 'breakdown', dimension: 'structure', label: 'breakdown', terms: ['breakdown'] },
+  { id: 'drop', dimension: 'structure', label: 'drop reference', terms: ['drop', 'drops'] },
+  { id: 'intro_outro', dimension: 'structure', label: 'intro / outro reference', terms: ['intro', 'intros', 'outro', 'outros'] }
+];
+
+/* These are the original MusicDNA fields for which the current catalog does
+ * not provide authoritative structured or measured values. */
 const MISSING_FIELDS = [
   'bpm',
   'bpm_feel',
@@ -82,19 +148,45 @@ const MISSING_FIELDS = [
   'key',
   'mode',
   'tonality_feel',
+  'texture_tags',
   'saturation_level',
+  'production_era_feel',
   'analog_warmth',
+  'lo_fi',
   'spatial_width',
   'energy_arc',
   'time_of_night',
   'dancefloor_function',
+  'city_vibe',
   'has_live_drums',
   'has_808',
   'has_909',
   'bassline_type',
   'vocal_presence',
+  'featured_instruments',
+  'intro_bars',
+  'outro_bars',
+  'has_breakdown',
   'mix_friendliness'
 ];
+
+const AVAILABLE_METADATA_DIMENSIONS = [
+  'genre',
+  'mood',
+  'groove',
+  'energy',
+  'scene',
+  'culture',
+  'era_reference',
+  'instrumentation_mentions',
+  'vocal_mentions',
+  'structure_mentions',
+  'track_count',
+  'duration_seconds',
+  'preview_availability'
+];
+
+const SPECIAL_REGEX_CHARS = '\\^$.*+?()[]{}|';
 
 function asText(value) {
   return String(value ?? '')
@@ -111,10 +203,36 @@ function unique(values) {
   return [...new Set(values.filter(Boolean))];
 }
 
+function escapeRegExp(value) {
+  return String(value)
+    .split('')
+    .map(char => SPECIAL_REGEX_CHARS.includes(char) ? '\\' + char : char)
+    .join('');
+}
+
+function matchesTerm(sourceText, term) {
+  const source = asText(sourceText);
+  const normalizedTerm = asText(term);
+  if (!source || !normalizedTerm) return false;
+  const pattern = normalizedTerm
+    .split(' ')
+    .filter(Boolean)
+    .map(escapeRegExp)
+    .join('\\s+');
+  return new RegExp('(^|[^a-z0-9])' + pattern + '(?=$|[^a-z0-9])').test(source);
+}
+
 function getRecordId(item) {
   const pageUrl = String(item?.page_url || '');
   const pageSlug = pageUrl.split('/').filter(Boolean).pop();
   return String(item?.record_id || pageSlug || item?.slug || '').trim();
+}
+
+function getDeclaredTagSource(item) {
+  if (Array.isArray(item?.bandcamp_tags)) return 'bandcamp_tags';
+  if (Array.isArray(item?.tags)) return 'tags';
+  if (Array.isArray(item?.genre_tags)) return 'genre_tags';
+  return null;
 }
 
 function getDeclaredTags(item) {
@@ -129,69 +247,133 @@ function getDeclaredTags(item) {
   return unique(source.map(tag => String(tag).trim()).filter(Boolean));
 }
 
+function parseDurationSeconds(value) {
+  if (typeof value === 'number') return Number.isFinite(value) && value > 0 ? value : null;
+  const text = String(value ?? '').trim();
+  if (!text) return null;
+  if (/^\d+(?:\.\d+)?$/.test(text)) {
+    const numeric = Number(text);
+    return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+  }
+  const match = text.match(/^(\d+):([0-5]\d)(?::([0-5]\d))?$/);
+  if (!match) return null;
+  const first = Number(match[1]);
+  const second = Number(match[2]);
+  const third = match[3] ? Number(match[3]) : null;
+  const total = third === null ? first * 60 + second : first * 3600 + second * 60 + third;
+  return Number.isFinite(total) && total > 0 ? total : null;
+}
+
 function getTrackDurations(item) {
   return (Array.isArray(item?.tracks) ? item.tracks : [])
-    .map(track => Number(track?.duration))
+    .map(track => parseDurationSeconds(track?.duration))
     .filter(duration => Number.isFinite(duration) && duration > 0);
 }
 
-function getSourceText(item, declaredTags = getDeclaredTags(item)) {
+function getMetadataSources(item, declaredTags = getDeclaredTags(item)) {
   const trackTitles = (Array.isArray(item?.tracks) ? item.tracks : [])
     .map(track => track?.title)
     .filter(Boolean);
 
-  return asText([
-    item?.title,
-    item?.artist,
-    item?.site_name,
-    item?.description,
-    ...declaredTags,
-    ...trackTitles
-  ].join(' '));
+  return [
+    {
+      source: 'catalog_tags',
+      text: asText(declaredTags.join(' '))
+    },
+    {
+      source: 'release_identity',
+      text: asText([item?.title, item?.artist, item?.site_name].filter(Boolean).join(' '))
+    },
+    {
+      source: 'release_description',
+      text: asText(item?.description)
+    },
+    {
+      source: 'track_titles',
+      text: asText(trackTitles.join(' '))
+    }
+  ].filter(entry => entry.text);
 }
 
-function getMatchedSignals(sourceText) {
+function getMatchedSignals(item, declaredTags = getDeclaredTags(item)) {
+  const sources = getMetadataSources(item, declaredTags);
+
   return SIGNAL_GROUPS
     .map(group => {
-      const matches = group.terms.filter(term => sourceText.includes(asText(term)));
-      if (matches.length === 0) return null;
+      const evidence = sources
+        .map(source => ({
+          source: source.source,
+          matched_terms: unique(group.terms.filter(term => matchesTerm(source.text, term)))
+        }))
+        .filter(entry => entry.matched_terms.length > 0);
+      if (evidence.length === 0) return null;
+
+      const strongest = evidence
+        .slice()
+        .sort((a, b) => (SOURCE_WEIGHTS[b.source] || 0) - (SOURCE_WEIGHTS[a.source] || 0))[0];
+
       return {
         id: group.id,
+        dimension: group.dimension,
         label: group.label,
-        matched_terms: unique(matches)
+        matched_terms: unique(evidence.flatMap(entry => entry.matched_terms)),
+        evidence,
+        evidence_strength: SOURCE_LABELS[strongest.source] || strongest.source
       };
     })
     .filter(Boolean);
 }
 
+function emptyProfile() {
+  return Object.fromEntries(PROFILE_DIMENSIONS.map(dimension => [dimension, []]));
+}
+
+function buildMetadataProfile(signals) {
+  const profile = emptyProfile();
+  (signals || []).forEach(signal => {
+    if (!profile[signal.dimension]) profile[signal.dimension] = [];
+    profile[signal.dimension].push(signal.id);
+  });
+  Object.keys(profile).forEach(dimension => {
+    profile[dimension] = unique(profile[dimension]);
+  });
+  return profile;
+}
+
 function buildMusicDNA(item) {
   const declaredTags = getDeclaredTags(item);
-  const sourceText = getSourceText(item, declaredTags);
+  const sources = getMetadataSources(item, declaredTags);
   const durations = getTrackDurations(item);
-  const matchedSignals = getMatchedSignals(sourceText);
+  const signals = getMatchedSignals(item, declaredTags);
+  const tracks = Array.isArray(item?.tracks) ? item.tracks : [];
 
   return {
-    schema_version: 'music-dna-lite.v1',
+    schema_version: DNA_SCHEMA_VERSION,
+    schema_revision: DNA_SCHEMA_REVISION,
     status: 'partial',
     record_id: getRecordId(item),
     source: 'catalog-metadata',
     declared: {
-      tags: declaredTags
+      tags: declaredTags,
+      tag_source: getDeclaredTagSource(item),
+      description_present: Boolean(String(item?.description || '').trim())
     },
+    metadata_profile: buildMetadataProfile(signals),
     inferred_from_metadata: {
-      signals: matchedSignals,
-      track_count: Array.isArray(item?.tracks) ? item.tracks.length : 0,
+      signals,
+      track_count: tracks.length,
       total_duration_seconds: durations.length > 0
-        ? durations.reduce((sum, duration) => sum + duration, 0)
+        ? Math.round(durations.reduce((sum, duration) => sum + duration, 0))
         : null,
-      has_preview: (Array.isArray(item?.tracks) ? item.tracks : [])
-        .some(track => Boolean(track?.preview_url))
+      has_preview: tracks.some(track => Boolean(track?.preview_url)),
+      source_fields_available: sources.map(source => source.source)
     },
     missing_fields: [...MISSING_FIELDS],
     provenance: {
       declared_tags: 'catalog_metadata',
       inferred_signals: 'deterministic_metadata_match',
-      audio_analysis: 'not_available_in_current_catalog'
+      audio_analysis: 'not_available_in_current_catalog',
+      note: 'Evidence strength is source priority, not a measured audio confidence.'
     }
   };
 }
@@ -210,73 +392,159 @@ function getSearchText(item, dna = buildMusicDNA(item)) {
   ].join(' '));
 }
 
+function getRequestedTerms(normalized, group) {
+  const found = group.terms.filter(term => matchesTerm(normalized, term));
+  return found.filter(term => !found.some(other => (
+    other !== term && asText(other).includes(asText(term))
+  )));
+}
+
+function isNegatedTerm(normalized, term) {
+  const tokens = asText(normalized).split(' ').filter(Boolean);
+  const termTokens = asText(term).split(' ').filter(Boolean);
+  if (termTokens.length === 0) return false;
+
+  for (let index = 0; index <= tokens.length - termTokens.length; index += 1) {
+    const candidate = tokens.slice(index, index + termTokens.length);
+    if (candidate.join(' ') !== termTokens.join(' ')) continue;
+    const before = tokens.slice(Math.max(0, index - 3), index);
+    if (before.some(token => NEGATION_WORDS.has(token))) return true;
+    if (before.slice(-2).join(' ') === 'less of') return true;
+  }
+  return false;
+}
+
 function getDescriptorSignals(descriptor) {
   const normalized = asText(descriptor);
-  const groups = SIGNAL_GROUPS
-    .filter(group => group.terms.some(term => normalized.includes(asText(term))))
-    .map(group => ({
-      id: group.id,
-      label: group.label,
-      requested_terms: group.terms.filter(term => normalized.includes(asText(term)))
-    }));
+  const groups = [];
+  const excludedGroups = [];
+  const reservedTerms = [];
 
+  SIGNAL_GROUPS.forEach(group => {
+    const requestedTerms = getRequestedTerms(normalized, group);
+    if (requestedTerms.length === 0) return;
+
+    const includedTerms = requestedTerms.filter(term => !isNegatedTerm(normalized, term));
+    const excludedTerms = requestedTerms.filter(term => isNegatedTerm(normalized, term));
+    reservedTerms.push(...requestedTerms.flatMap(term => asText(term).split(' ')));
+
+    if (includedTerms.length > 0) {
+      groups.push({
+        id: group.id,
+        dimension: group.dimension,
+        label: group.label,
+        requested_terms: includedTerms
+      });
+    }
+    if (excludedTerms.length > 0) {
+      excludedGroups.push({
+        id: group.id,
+        dimension: group.dimension,
+        label: group.label,
+        requested_terms: excludedTerms
+      });
+    }
+  });
+
+  const reserved = new Set(reservedTerms);
   const freeTerms = unique(normalized
     .split(' ')
-    .filter(token => token.length > 2 && !STOP_WORDS.has(token)))
-    .filter(token => !groups.some(group => group.requested_terms.some(term => asText(term).includes(token))));
+    .filter(token => token.length > 2 && !STOP_WORDS.has(token) && !NEGATION_WORDS.has(token))
+    .filter(token => !reserved.has(token)));
 
-  return { normalized, groups, freeTerms };
+  return { normalized, groups, excludedGroups, freeTerms };
+}
+
+function getSignalStrength(signal) {
+  return Math.max(
+    0.45,
+    ...(signal?.evidence || []).map(entry => SOURCE_WEIGHTS[entry.source] || 0.45)
+  );
+}
+
+function getFreeTermEvidence(item, term) {
+  return getMetadataSources(item)
+    .filter(source => matchesTerm(source.text, term))
+    .sort((a, b) => (SOURCE_WEIGHTS[b.source] || 0) - (SOURCE_WEIGHTS[a.source] || 0))
+    .map(source => ({
+      source: source.source,
+      strength: SOURCE_LABELS[source.source] || source.source
+    }));
 }
 
 function scoreItem(item, descriptor) {
   const dna = buildMusicDNA(item);
   const searchText = getSearchText(item, dna);
-  const declaredTags = getDeclaredTags(item).map(asText);
+  const signalMap = new Map((dna.inferred_from_metadata?.signals || []).map(signal => [signal.id, signal]));
   const parsed = getDescriptorSignals(descriptor);
   const reasons = [];
+  const evidence = [];
   let points = 0;
   let possible = 0;
+  let conflictPenalty = 0;
 
   parsed.groups.forEach(group => {
-    possible += 2;
-    const matchedTerm = group.requested_terms.find(term => searchText.includes(asText(term)));
-    if (matchedTerm) {
-      points += declaredTags.some(tag => tag.includes(asText(matchedTerm))) ? 2 : 1;
-      reasons.push(`DNA signal: ${group.label}`);
-    }
+    const groupWeight = group.dimension === 'genre' ? 1.15 : 1;
+    possible += groupWeight;
+    const signal = signalMap.get(group.id);
+    if (!signal) return;
+    const strength = getSignalStrength(signal);
+    points += groupWeight * strength;
+    reasons.push('DNA signal: ' + group.label);
+    evidence.push({
+      type: 'controlled_signal',
+      id: group.id,
+      source: signal.evidence_strength,
+      strength: Number(strength.toFixed(2))
+    });
+  });
+
+  parsed.excludedGroups.forEach(group => {
+    const signal = signalMap.get(group.id);
+    if (!signal) return;
+    conflictPenalty += group.dimension === 'genre' ? 0.35 : 0.25;
+    reasons.push('excluded signal present: ' + group.label);
+    evidence.push({
+      type: 'excluded_signal',
+      id: group.id,
+      source: signal.evidence_strength
+    });
   });
 
   parsed.freeTerms.forEach(term => {
     possible += 1;
-    if (searchText.includes(term)) {
-      points += declaredTags.some(tag => tag.includes(term)) ? 1.25 : 0.75;
-      reasons.push(`metadata match: ${term}`);
-    }
+    const termEvidence = getFreeTermEvidence(item, term);
+    if (termEvidence.length === 0) return;
+    const strongest = termEvidence[0];
+    points += SOURCE_WEIGHTS[strongest.source] || 0.45;
+    reasons.push('metadata match: ' + term);
+    evidence.push({
+      type: 'free_term',
+      term,
+      source: strongest.strength,
+      strength: Number((SOURCE_WEIGHTS[strongest.source] || 0.45).toFixed(2))
+    });
   });
 
-  const descriptorWords = parsed.normalized.split(' ').filter(Boolean);
-  if (descriptorWords.length === 0) {
-    return { item, dna, score: 0, reasons: [] };
-  }
-
-  // A short descriptor with no controlled signal still gets a deterministic
-  // title/description match, while never pretending this is an audio score.
   if (possible === 0) {
-    descriptorWords.forEach(term => {
-      if (term.length > 2 && searchText.includes(term)) {
-        points += 1;
-        possible += 1;
-        reasons.push(`metadata match: ${term}`);
-      }
-    });
+    return { item, dna, score: 0, reasons: [], evidence: [] };
   }
 
-  const normalizedScore = possible > 0 ? Math.min(1, points / possible) : 0;
+  // searchText remains a deliberate compatibility fallback for a descriptor
+  // that contains one useful free word but has no controlled signal. It never
+  // changes the provenance claim: this is still text metadata, not audio.
+  if (points === 0 && parsed.freeTerms.length > 0) {
+    const fallbackMatches = parsed.freeTerms.filter(term => matchesTerm(searchText, term));
+    points += fallbackMatches.length * 0.35;
+  }
+
+  const normalizedScore = Math.max(0, Math.min(1, (points / possible) - conflictPenalty));
   return {
     item,
     dna,
     score: Number(normalizedScore.toFixed(3)),
-    reasons: unique(reasons).slice(0, 5)
+    reasons: unique(reasons).slice(0, 5),
+    evidence: evidence.slice(0, 8)
   };
 }
 
@@ -299,13 +567,16 @@ function scoreCatalog(items, descriptor, { maxResults = 12, excludeIds = [] } = 
       label: result.item?.site_name || '',
       score: result.score,
       match_reason: result.reasons,
+      match_evidence: result.evidence,
       dna_status: result.dna.status
     })),
     descriptor_parse: {
       normalized: parsed.normalized,
       controlled_signals: parsed.groups.map(group => group.id),
+      excluded_signals: parsed.excludedGroups.map(group => group.id),
       free_terms: parsed.freeTerms,
-      scoring: 'deterministic catalog metadata; not audio analysis',
+      scoring: 'weighted deterministic catalog metadata; not audio analysis',
+      available_dimensions: [...AVAILABLE_METADATA_DIMENSIONS],
       unavailable_dimensions: [...MISSING_FIELDS]
     }
   };
@@ -315,32 +586,63 @@ function buildCollectionStats(items) {
   const records = Array.isArray(items) ? items : [];
   const tagFrequency = {};
   const signalFrequency = {};
+  const dimensionFrequency = {};
+  let recordsWithTags = 0;
+  let recordsWithDescriptions = 0;
+  let recordsWithPreviews = 0;
+  let trackCount = 0;
 
   records.forEach(item => {
-    getDeclaredTags(item).forEach(tag => {
+    const tags = getDeclaredTags(item);
+    if (tags.length > 0) recordsWithTags += 1;
+    tags.forEach(tag => {
       const key = String(tag).trim();
       if (key) tagFrequency[key] = (tagFrequency[key] || 0) + 1;
     });
 
-    buildMusicDNA(item).inferred_from_metadata.signals.forEach(signal => {
+    if (String(item?.description || '').trim()) recordsWithDescriptions += 1;
+    const tracks = Array.isArray(item?.tracks) ? item.tracks : [];
+    trackCount += tracks.length;
+    if (tracks.some(track => Boolean(track?.preview_url))) recordsWithPreviews += 1;
+
+    const dna = buildMusicDNA(item);
+    dna.inferred_from_metadata.signals.forEach(signal => {
       signalFrequency[signal.id] = (signalFrequency[signal.id] || 0) + 1;
+      dimensionFrequency[signal.dimension] = (dimensionFrequency[signal.dimension] || 0) + 1;
     });
   });
 
-  const knownFields = ['title', 'artist', 'description', 'tags', 'tracks', 'preview_url'];
-  const missingFields = [...MISSING_FIELDS];
-
   return {
     total_records: records.length,
-    dna_schema_version: 'music-dna-lite.v1',
+    total_tracks: trackCount,
+    dna_schema_version: DNA_SCHEMA_VERSION,
+    dna_schema_revision: DNA_SCHEMA_REVISION,
     dna_status: 'partial_metadata_only',
-    known_fields: knownFields,
-    missing_fields: missingFields,
+    known_fields: [
+      'title',
+      'artist',
+      'description',
+      'tags',
+      'metadata_profile',
+      'tracks',
+      'duration_seconds',
+      'preview_url'
+    ],
+    available_dimensions: [...AVAILABLE_METADATA_DIMENSIONS],
+    missing_fields: [...MISSING_FIELDS],
+    metadata_coverage: {
+      records_with_tags: recordsWithTags,
+      records_with_descriptions: recordsWithDescriptions,
+      records_with_previews: recordsWithPreviews
+    },
     tag_frequency: Object.fromEntries(
       Object.entries(tagFrequency).sort(([, a], [, b]) => b - a).slice(0, 30)
     ),
     inferred_signal_frequency: Object.fromEntries(
       Object.entries(signalFrequency).sort(([, a], [, b]) => b - a)
+    ),
+    inferred_dimension_frequency: Object.fromEntries(
+      Object.entries(dimensionFrequency).sort(([, a], [, b]) => b - a)
     ),
     provenance: 'catalog metadata and deterministic text matches; no BPM/key/audio claims'
   };
