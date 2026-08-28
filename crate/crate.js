@@ -124,7 +124,10 @@ const DRAG_THRESHOLD = 50; // pixels to flip a record (for mousewheel only)
 // Audio Player state
 let audio = new Audio();
 let currentPlayingTrackId = null;
+let currentPlayingReleaseId = null;
+let currentPlayingTrack = null;
 let currentPlayingTrackItem = null;
+let playerError = null;
 let siteAudioEnabled = true;
 let uiAudioContext = null;
 let lastNavigationTickAt = 0;
@@ -168,6 +171,7 @@ window.addEventListener('seph-agent-sound', event => {
   siteAudioEnabled = enabled;
   audio.muted = !siteAudioEnabled;
   document.documentElement.dataset.siteAudio = siteAudioEnabled ? 'on' : 'off';
+  emitPlayerState('site_audio_changed');
 });
 
 function getUiAudioContext() {
@@ -585,12 +589,18 @@ function publishCrateApi() {
       visible_item_count: catalog.length,
       cart_count: readLocalCrateItems().length,
       site_audio_enabled: siteAudioEnabled,
+      player: getPlayerState(),
       webgl: Boolean(renderer),
       webmcp_candidate: Boolean(document.modelContext),
       purchase_automation: false
     }),
     getMasterCatalog: () => masterCatalog.slice(),
     getVisibleCatalog: () => catalog.slice(),
+    getPlayerState,
+    playTrack: playTrackById,
+    pauseTrack: pauseAudio,
+    seekTrack: seekPlayer,
+    setPlayerMuted: muted => setSiteAudioEnabled(!Boolean(muted)),
     searchCatalog: (query, maxResults = 12) => {
       const normalized = String(query || '').toLowerCase().trim();
       return masterCatalog
@@ -1193,45 +1203,61 @@ function initUI() {
 
     if (audio.duration) {
       const pct = (audio.currentTime / audio.duration) * 100;
-      fill.style.width = `${pct}%`;
-      currentTimeEl.innerText = formatTime(audio.currentTime);
+      if (fill) fill.style.width = `${pct}%`;
+      if (currentTimeEl) currentTimeEl.innerText = formatTime(audio.currentTime);
     }
   });
 
   audio.addEventListener('loadedmetadata', () => {
     const totalTimeEl = document.getElementById('player-total-time');
-    totalTimeEl.innerText = formatTime(audio.duration);
+    if (totalTimeEl) totalTimeEl.innerText = formatTime(audio.duration);
+    emitPlayerState('metadata_loaded');
   });
 
   audio.addEventListener('ended', () => {
-    const playIcon = document.querySelector('.play-icon');
-    const pauseIcon = document.querySelector('.pause-icon');
-    playIcon.classList.remove('hidden');
-    pauseIcon.classList.add('hidden');
+    setPlayerUiPlaying(false);
 
     // Clear active track state in lists
     if (currentPlayingTrackItem) {
       currentPlayingTrackItem.classList.remove('active');
     }
 
+    emitPlayerState('playback_ended');
+
     // Auto-play next track if available
     playNextTrack();
   });
 
-  audio.addEventListener('play', updateTrackListIcons);
-  audio.addEventListener('pause', updateTrackListIcons);
+  audio.addEventListener('play', () => {
+    playerError = null;
+    setPlayerUiPlaying(true);
+    updateTrackListIcons();
+    emitPlayerState('playback_started');
+  });
+  audio.addEventListener('pause', () => {
+    setPlayerUiPlaying(false);
+    updateTrackListIcons();
+    emitPlayerState('playback_paused');
+  });
+  audio.addEventListener('error', () => {
+    playerError = {
+      code: 'PREVIEW_LOAD_FAILED',
+      message: 'The selected preview could not be loaded.'
+    };
+    setPlayerUiPlaying(false);
+    updateTrackListIcons();
+    emitPlayerState('preview_load_failed');
+  });
 
   // Progress bar scrub
   const progressBar = document.getElementById('player-progress-bar');
-  progressBar.addEventListener('click', (e) => {
+  if (progressBar) progressBar.addEventListener('click', (e) => {
     const rect = progressBar.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const width = rect.width;
     const pct = clickX / width;
 
-    if (audio.duration) {
-      audio.currentTime = pct * audio.duration;
-    }
+    if (audio.duration) seekPlayer(pct * audio.duration);
   });
 
   // Wheel listener for digging
@@ -2758,7 +2784,8 @@ function showRecordDetails(index) {
     // across the catalog (a compilation may include a track from another
     // release), so playback must retain the release the user actually opened.
     li.dataset.releaseRecordId = getCrateRecordId(item);
-    if (currentPlayingTrackId === track.id) {
+    li.dataset.trackId = String(track.id || '');
+    if (currentPlayingTrackId === String(track.id) && currentPlayingReleaseId === li.dataset.releaseRecordId) {
       li.classList.add('active');
       currentPlayingTrackItem = li;
     }
@@ -2768,7 +2795,9 @@ function showRecordDetails(index) {
     const durSec = String(Math.floor(track.duration % 60)).padStart(2, '0');
     const durStr = `${durMin}:${durSec}`;
 
-    const isPlaying = (currentPlayingTrackId === track.id && !audio.paused);
+    const isPlaying = (currentPlayingTrackId === String(track.id)
+      && currentPlayingReleaseId === li.dataset.releaseRecordId
+      && !audio.paused);
     const pathD = isPlaying ? 'M6 19h4V5H6v14zm8-14v14h4V5h-4z' : 'M8 5v14l11-7z';
 
     li.innerHTML = `
@@ -2934,19 +2963,238 @@ function findReleaseByTrackId(trackId) {
   return list.find(release => release.tracks && release.tracks.some(t => t.id === trackId)) || null;
 }
 
+function getPlayerState() {
+  const audioDuration = Number(audio.duration);
+  const declaredDuration = Number(currentPlayingTrack?.duration);
+  const durationSeconds = Number.isFinite(audioDuration) && audioDuration > 0
+    ? audioDuration
+    : Number.isFinite(declaredDuration) && declaredDuration > 0 ? declaredDuration : null;
+  const currentTime = Number(audio.currentTime);
+  const currentRelease = currentPlayingReleaseId ? findMasterCatalogItem(currentPlayingReleaseId) : null;
+  let status = 'idle';
+  if (currentPlayingTrackId) {
+    if (playerError || audio.error) status = 'error';
+    else if (audio.ended) status = 'ended';
+    else if (!audio.paused) status = 'playing';
+    else if (audio.readyState >= 1) status = 'paused';
+    else status = 'loading';
+  }
+
+  return {
+    ok: true,
+    status,
+    is_loaded: Boolean(currentPlayingTrackId && (audio.currentSrc || audio.src)),
+    is_playing: status === 'playing',
+    current_time_seconds: Number.isFinite(currentTime) && currentTime >= 0 ? currentTime : 0,
+    duration_seconds: durationSeconds,
+    declared_duration_seconds: Number.isFinite(declaredDuration) && declaredDuration > 0 ? declaredDuration : null,
+    track_id: currentPlayingTrackId,
+    track_title: currentPlayingTrack?.title || null,
+    release_record_id: currentPlayingReleaseId,
+    release_title: currentRelease?.title || null,
+    muted: Boolean(audio.muted || !siteAudioEnabled),
+    site_audio_enabled: siteAudioEnabled,
+    source: audio.currentSrc || audio.src || currentPlayingTrack?.preview_url || null,
+    ready_state: audio.readyState,
+    error: playerError
+  };
+}
+
+function emitPlayerState(event = 'state_changed') {
+  const state = getPlayerState();
+  window.dispatchEvent(new CustomEvent('seph-player-state', {
+    detail: { event, ...state }
+  }));
+  return state;
+}
+
+function setPlayerUiPlaying(isPlaying) {
+  const playIcon = document.querySelector('.play-icon');
+  const pauseIcon = document.querySelector('.pause-icon');
+  const playPauseBtn = document.getElementById('player-play-btn');
+  if (playIcon) playIcon.classList.toggle('hidden', Boolean(isPlaying));
+  if (pauseIcon) pauseIcon.classList.toggle('hidden', !isPlaying);
+  if (playPauseBtn) playPauseBtn.classList.toggle('is-playing', Boolean(isPlaying));
+}
+
+function playerErrorResult(code, message, extra = {}) {
+  return {
+    ok: false,
+    error: { code, message },
+    player_state: getPlayerState(),
+    ...extra
+  };
+}
+
+function getTrackCandidates(trackId, recordId = '') {
+  const normalizedTrackId = String(trackId || '').trim();
+  const normalizedRecordId = String(recordId || '').trim();
+  const list = (masterCatalog && masterCatalog.length > 0) ? masterCatalog : catalog;
+  let releases = list;
+
+  if (normalizedRecordId) {
+    releases = list.filter(release => getCrateRecordId(release) === normalizedRecordId
+      || String(release?.slug || '') === normalizedRecordId
+      || String(release?.page_url || '') === normalizedRecordId);
+  }
+
+  return releases.flatMap(release => (Array.isArray(release?.tracks) ? release.tracks : [])
+    .filter(track => String(track?.id || '').trim() === normalizedTrackId)
+    .map(track => ({ release, track })));
+}
+
+function resolveTrackForPlayback(trackId, recordId = '') {
+  const normalizedTrackId = String(trackId || '').trim();
+  const normalizedRecordId = String(recordId || '').trim();
+  if (!normalizedTrackId) {
+    if (!currentPlayingTrackId) {
+      return playerErrorResult('NO_TRACK_LOADED', 'No track is loaded. Supply a track_id from inspect_record first.');
+    }
+    const currentCandidates = getTrackCandidates(currentPlayingTrackId, currentPlayingReleaseId);
+    const current = currentCandidates.find(candidate => getCrateRecordId(candidate.release) === currentPlayingReleaseId)
+      || currentCandidates[0];
+    if (current) return { ok: true, ...current };
+    if (currentPlayingTrack) {
+      return {
+        ok: true,
+        track: currentPlayingTrack,
+        release: currentPlayingReleaseId ? findMasterCatalogItem(currentPlayingReleaseId) : null
+      };
+    }
+    return playerErrorResult('TRACK_NOT_FOUND', 'The currently loaded track is no longer present in the catalog.');
+  }
+
+  const candidates = getTrackCandidates(normalizedTrackId, normalizedRecordId);
+  if (candidates.length === 0) {
+    return playerErrorResult(
+      normalizedRecordId ? 'TRACK_NOT_FOUND_IN_RELEASE' : 'TRACK_NOT_FOUND',
+      normalizedRecordId
+        ? 'The requested track is not present in the requested release.'
+        : 'The requested track is not present in the loaded catalog.'
+    );
+  }
+  if (candidates.length === 1) return { ok: true, ...candidates[0] };
+
+  const detailSlug = document.getElementById('buy-btn')?.getAttribute('data-slug');
+  const detailCandidate = candidates.find(candidate => String(candidate.release?.slug || '') === detailSlug
+    || getCrateRecordId(candidate.release) === detailSlug);
+  if (detailCandidate) return { ok: true, ...detailCandidate };
+
+  return playerErrorResult('AMBIGUOUS_TRACK', 'The track ID exists in multiple releases. Supply record_id to select the correct sleeve.', {
+    candidates: candidates.slice(0, 12).map(candidate => ({
+      track_id: String(candidate.track?.id || ''),
+      track_title: candidate.track?.title || '',
+      record_id: getCrateRecordId(candidate.release),
+      release_title: candidate.release?.title || ''
+    }))
+  });
+}
+
+function findTrackElement(releaseId, trackId) {
+  return [...document.querySelectorAll('.track-item')]
+    .find(element => element.dataset.releaseRecordId === String(releaseId || '')
+      && element.dataset.trackId === String(trackId || '')) || null;
+}
+
+function startAudioPlayback() {
+  if (!currentPlayingTrackId || !(audio.currentSrc || audio.src)) {
+    return Promise.resolve(playerErrorResult('NO_TRACK_LOADED', 'No track is loaded in the player.'));
+  }
+
+  playerError = null;
+  if (audio.ended) {
+    try {
+      audio.currentTime = 0;
+    } catch (error) {
+      // Let the native play() promise provide the actionable playback error.
+    }
+  }
+  return audio.play()
+    .then(() => {
+      setPlayerUiPlaying(true);
+      updateTrackListIcons();
+      return { ok: true, ...emitPlayerState('playback_started') };
+    })
+    .catch(error => {
+      const blocked = error?.name === 'NotAllowedError';
+      playerError = {
+        code: blocked ? 'PLAYBACK_BLOCKED' : 'PLAYBACK_FAILED',
+        message: blocked
+          ? 'The browser requires a user gesture before audio playback can start.'
+          : String(error?.message || 'The preview could not be played.')
+      };
+      setPlayerUiPlaying(false);
+      updateTrackListIcons();
+      emitPlayerState('playback_failed');
+      return playerErrorResult(playerError.code, playerError.message);
+    });
+}
+
+function seekPlayer(positionSeconds) {
+  const requested = Number(positionSeconds);
+  if (!Number.isFinite(requested) || requested < 0 || requested > 86400) {
+    return playerErrorResult('INVALID_POSITION', 'position_seconds must be a finite number between 0 and 86400.');
+  }
+  if (!currentPlayingTrackId || !(audio.currentSrc || audio.src)) {
+    return playerErrorResult('NO_TRACK_LOADED', 'Load a track before seeking.');
+  }
+
+  const audioDuration = Number(audio.duration);
+  const declaredDuration = Number(currentPlayingTrack?.duration);
+  const duration = Number.isFinite(audioDuration) && audioDuration > 0
+    ? audioDuration
+    : Number.isFinite(declaredDuration) && declaredDuration > 0 ? declaredDuration : null;
+  const target = duration === null ? requested : Math.min(requested, duration);
+
+  try {
+    audio.currentTime = target;
+    playerError = null;
+    setPlayerUiPlaying(!audio.paused);
+    updateTrackListIcons();
+    return {
+      ok: true,
+      requested_position_seconds: requested,
+      applied_position_seconds: target,
+      clamped: target !== requested,
+      ...emitPlayerState('seeked')
+    };
+  } catch (error) {
+    return playerErrorResult('SEEK_FAILED', String(error?.message || 'The player rejected this seek request.'));
+  }
+}
+
+function setSiteAudioEnabled(enabled) {
+  siteAudioEnabled = Boolean(enabled);
+  audio.muted = !siteAudioEnabled;
+  document.documentElement.dataset.siteAudio = siteAudioEnabled ? 'on' : 'off';
+  return emitPlayerState('site_audio_changed');
+}
+
+async function playTrackById(trackId, recordId = '') {
+  const resolved = resolveTrackForPlayback(trackId, recordId);
+  if (!resolved.ok) return resolved;
+
+  const releaseId = resolved.release ? getCrateRecordId(resolved.release) : currentPlayingReleaseId;
+  if (releaseId) {
+    const focused = focusRecordById(releaseId);
+    if (!focused.ok) return focused;
+  }
+  const trackItemElement = findTrackElement(releaseId, resolved.track.id);
+  return playTrack(resolved.track, trackItemElement, { toggleIfCurrent: false, recordId: releaseId });
+}
+
 // Audio Player Functionality
-function playTrack(track, trackItemElement) {
+function playTrack(track, trackItemElement, { toggleIfCurrent = true, recordId = '' } = {}) {
   const player = document.getElementById('custom-player');
   const playerTitle = document.getElementById('player-track-title');
   const playerCover = document.getElementById('player-play-cover');
   const playerCoverLink = document.getElementById('player-cover-link');
   const playerReleaseLink = document.getElementById('player-release-link');
-  const playIcon = document.querySelector('.play-icon');
-  const pauseIcon = document.querySelector('.pause-icon');
 
-  if (currentPlayingTrackId === track.id) {
-    toggleAudioPlayback();
-    return;
+  const requestedRecordId = String(recordId || trackItemElement?.dataset?.releaseRecordId || '').trim();
+  if (currentPlayingTrackId === String(track.id) && currentPlayingReleaseId === requestedRecordId) {
+    if (toggleIfCurrent) return toggleAudioPlayback();
+    return startAudioPlayback();
   }
 
   if (currentPlayingTrackItem) {
@@ -2957,7 +3205,10 @@ function playTrack(track, trackItemElement) {
   if (currentPlayingTrackItem) {
     currentPlayingTrackItem.classList.add('active');
   }
-  currentPlayingTrackId = track.id;
+  currentPlayingTrackId = String(track.id);
+  currentPlayingReleaseId = requestedRecordId || null;
+  currentPlayingTrack = track;
+  playerError = null;
 
   // Resolve the parent from the visible tracklist first. Track IDs can repeat
   // in compilation records, so a global ID lookup alone can choose the wrong
@@ -2967,7 +3218,9 @@ function playTrack(track, trackItemElement) {
     : null;
   const detailSlug = document.getElementById('buy-btn')?.getAttribute('data-slug');
   const detailRelease = detailSlug ? findMasterCatalogItem(detailSlug) : null;
-  const parentRelease = rowRelease
+  const requestedRelease = requestedRecordId ? findMasterCatalogItem(requestedRecordId) : null;
+  const parentRelease = requestedRelease
+    || rowRelease
     || detailRelease
     || (track.release_id ? findMasterCatalogItem(track.release_id) : null)
     || findReleaseByTrackId(track.id)
@@ -2976,6 +3229,7 @@ function playTrack(track, trackItemElement) {
 
   if (parentRelease) {
     const recordId = getCrateRecordId(parentRelease);
+    currentPlayingReleaseId = recordId || currentPlayingReleaseId;
     if (playerCover && parentRelease.image) {
       playerCover.src = parentRelease.image;
       playerCover.alt = `${parentRelease.title || 'Record'} Cover`;
@@ -3000,54 +3254,46 @@ function playTrack(track, trackItemElement) {
     }
   }
 
-  audio.src = track.preview_url;
-  audio.play()
-    .then(() => {
-      player.classList.remove('hidden');
-      if (playerTitle) playerTitle.innerText = track.title;
-      if (playIcon) playIcon.classList.add('hidden');
-      if (pauseIcon) pauseIcon.classList.remove('hidden');
-      const playPauseBtn = document.getElementById('player-play-btn');
-      if (playPauseBtn) playPauseBtn.classList.add('is-playing');
-    })
-    .catch(err => {
-      console.error('Audio playback failed:', err);
-    });
+  const previewUrl = String(track.preview_url || '').trim();
+  if (!previewUrl) {
+    playerError = { code: 'PREVIEW_UNAVAILABLE', message: 'The selected track has no preview URL.' };
+    return Promise.resolve(playerErrorResult(playerError.code, playerError.message));
+  }
+
+  if (player) player.classList.remove('hidden');
+  if (playerTitle) playerTitle.innerText = track.title || 'Untitled track';
+  if (player) player.setAttribute('aria-label', `Preview ${track.title || 'track'}`);
+  setPlayerUiPlaying(false);
+  audio.src = previewUrl;
+  audio.load();
+  emitPlayerState('track_loaded');
+  return startAudioPlayback();
 }
 
 function toggleAudioPlayback() {
-  const playIcon = document.querySelector('.play-icon');
-  const pauseIcon = document.querySelector('.pause-icon');
-  const playPauseBtn = document.getElementById('player-play-btn');
-
   if (audio.paused) {
-    audio.play()
-      .then(() => {
-        if (playIcon) playIcon.classList.add('hidden');
-        if (pauseIcon) pauseIcon.classList.remove('hidden');
-        if (playPauseBtn) playPauseBtn.classList.add('is-playing');
-      })
-      .catch(err => console.error(err));
+    return startAudioPlayback();
   } else {
     audio.pause();
-    if (playIcon) playIcon.classList.remove('hidden');
-    if (pauseIcon) pauseIcon.classList.add('hidden');
-    if (playPauseBtn) playPauseBtn.classList.remove('is-playing');
+    setPlayerUiPlaying(false);
+    updateTrackListIcons();
+    return emitPlayerState('playback_paused');
   }
 }
 
 function pauseAudio() {
+  if (!currentPlayingTrackId || !(audio.currentSrc || audio.src)) {
+    return playerErrorResult('NO_TRACK_LOADED', 'No track is loaded in the player.');
+  }
   audio.pause();
-  const playIcon = document.querySelector('.play-icon');
-  const pauseIcon = document.querySelector('.pause-icon');
-  const playPauseBtn = document.getElementById('player-play-btn');
-  if (playIcon) playIcon.classList.remove('hidden');
-  if (pauseIcon) pauseIcon.classList.add('hidden');
-  if (playPauseBtn) playPauseBtn.classList.remove('is-playing');
+  setPlayerUiPlaying(false);
+  updateTrackListIcons();
+  return emitPlayerState('playback_paused');
 }
 
 function playNextTrack() {
-  const parentRelease = findReleaseByTrackId(currentPlayingTrackId);
+  const parentRelease = (currentPlayingReleaseId && findMasterCatalogItem(currentPlayingReleaseId))
+    || findReleaseByTrackId(currentPlayingTrackId);
   if (!parentRelease || !parentRelease.tracks) return;
 
   const nextTrackIndex = parentRelease.tracks.findIndex(t => t.id === currentPlayingTrackId) + 1;

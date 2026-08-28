@@ -11,7 +11,9 @@
  */
 
 const DNA_SCHEMA_VERSION = 'music-dna-lite.v1';
-const DNA_SCHEMA_REVISION = 2;
+const DNA_SCHEMA_REVISION = 3;
+
+const TECHNICAL_AUDIO_FIELDS = ['bpm', 'key', 'mode'];
 
 const STOP_WORDS = new Set([
   'a', 'an', 'and', 'are', 'at', 'be', 'but', 'by', 'for', 'from', 'give',
@@ -264,6 +266,134 @@ function parseDurationSeconds(value) {
   return Number.isFinite(total) && total > 0 ? total : null;
 }
 
+function cleanAnalysisText(value, max = 160) {
+  const text = String(value ?? '').trim();
+  return text ? text.slice(0, max) : null;
+}
+
+function parseBpm(value) {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) && value >= 20 && value <= 300
+      ? Math.round(value * 10) / 10
+      : null;
+  }
+  const text = String(value ?? '').trim();
+  const match = text.match(/^(\d{2,3}(?:\.\d+)?)\s*(?:bpm)?$/i);
+  if (!match) return null;
+  return parseBpm(Number(match[1]));
+}
+
+function parseMusicalKey(value) {
+  const text = String(value ?? '').trim().replace(/\s+/g, ' ');
+  if (!text) return null;
+  // Accept conventional pitch-class names and Camelot/Open Key labels, but do
+  // not turn arbitrary descriptive text into a key claim.
+  const camelot = text.match(/^(1[0-2]|[1-9])([AB])$/i);
+  if (camelot) return `${Number(camelot[1])}${camelot[2].toUpperCase()}`;
+
+  const pitchClass = text.match(/^([A-Ga-g])([#b]?)(?:\s*(maj(?:or)?|min(?:or)?))?$/i);
+  if (!pitchClass) return null;
+  const note = pitchClass[1].toUpperCase();
+  const accidental = pitchClass[2] || '';
+  const quality = pitchClass[3]
+    ? /^(?:maj|major)$/i.test(pitchClass[3]) ? ' major' : ' minor'
+    : '';
+  return `${note}${accidental}${quality}`;
+}
+
+function parseMode(value) {
+  const text = String(value ?? '').trim().toLowerCase();
+  if (['major', 'maj'].includes(text)) return 'major';
+  if (['minor', 'min'].includes(text)) return 'minor';
+  return null;
+}
+
+function getTrackAnalysisInput(item, track, index) {
+  const releaseAnalysis = item?.audio_analysis || item?.audioAnalysis || null;
+  const releaseTracks = releaseAnalysis?.tracks;
+  const releaseTrackAnalysis = Array.isArray(releaseTracks)
+    ? releaseTracks.find(candidate => String(candidate?.track_id || candidate?.id || '') === String(track?.id || ''))
+      || releaseTracks[index]
+    : releaseTracks && typeof releaseTracks === 'object'
+      ? releaseTracks[String(track?.id || '')]
+      : null;
+  return track?.audio_analysis
+    || track?.audioAnalysis
+    || track?.technical_metadata
+    || releaseTrackAnalysis
+    || null;
+}
+
+function buildTrackAudioAnalysis(item, track, index) {
+  const raw = getTrackAnalysisInput(item, track, index);
+  const provenance = raw?.provenance && typeof raw.provenance === 'object'
+    ? raw.provenance
+    : {};
+  const source = cleanAnalysisText(raw?.source || provenance.source);
+  const method = cleanAnalysisText(raw?.method || provenance.method);
+  const confidence = typeof raw?.confidence === 'number'
+    ? Math.max(0, Math.min(1, raw.confidence))
+    : typeof provenance.confidence === 'number'
+      ? Math.max(0, Math.min(1, provenance.confidence))
+      : null;
+  const candidates = {
+    bpm: parseBpm(raw?.bpm ?? raw?.tempo),
+    key: parseMusicalKey(raw?.key ?? raw?.musical_key),
+    mode: parseMode(raw?.mode)
+  };
+  const candidateFields = TECHNICAL_AUDIO_FIELDS.filter(field => candidates[field] !== null);
+  const verified = Boolean(source && method);
+  const availableFields = verified ? candidateFields : [];
+  const unverifiedFields = verified ? [] : candidateFields;
+
+  return {
+    track_id: String(track?.id || ''),
+    title: String(track?.title || ''),
+    status: availableFields.length > 0
+      ? 'available'
+      : unverifiedFields.length > 0 ? 'unverified' : 'not_available',
+    bpm: availableFields.includes('bpm') ? candidates.bpm : null,
+    key: availableFields.includes('key') ? candidates.key : null,
+    mode: availableFields.includes('mode') ? candidates.mode : null,
+    available_fields: availableFields,
+    unverified_fields: unverifiedFields,
+    source: verified ? source : null,
+    method: verified ? method : null,
+    confidence: verified ? confidence : null
+  };
+}
+
+function buildAudioAnalysis(item) {
+  const tracks = Array.isArray(item?.tracks) ? item.tracks : [];
+  const trackAnalyses = tracks.map((track, index) => buildTrackAudioAnalysis(item, track, index));
+  const availableFields = unique(trackAnalyses.flatMap(analysis => analysis.available_fields));
+  const unverifiedFields = unique(trackAnalyses.flatMap(analysis => analysis.unverified_fields));
+  const coverage = Object.fromEntries(
+    TECHNICAL_AUDIO_FIELDS.map(field => [
+      `tracks_with_${field}`,
+      trackAnalyses.filter(analysis => analysis.available_fields.includes(field)).length
+    ])
+  );
+  let status = 'not_available';
+  if (availableFields.length > 0 && availableFields.length === TECHNICAL_AUDIO_FIELDS.length) status = 'available';
+  else if (availableFields.length > 0) status = 'partial';
+  else if (unverifiedFields.length > 0) status = 'unverified';
+
+  return {
+    status,
+    scope: 'per_track',
+    tracks: trackAnalyses,
+    available_fields: availableFields,
+    missing_fields: TECHNICAL_AUDIO_FIELDS.filter(field => !availableFields.includes(field)),
+    coverage,
+    provenance: status === 'not_available'
+      ? 'No authoritative per-track audio analysis is present in the current catalog.'
+      : status === 'unverified'
+        ? 'Candidate BPM/key values were found without both source and method, so they remain withheld.'
+        : 'Values are exposed only when each field carries explicit source and method provenance.'
+  };
+}
+
 function getTrackDurations(item) {
   return (Array.isArray(item?.tracks) ? item.tracks : [])
     .map(track => parseDurationSeconds(track?.duration))
@@ -346,13 +476,17 @@ function buildMusicDNA(item) {
   const durations = getTrackDurations(item);
   const signals = getMatchedSignals(item, declaredTags);
   const tracks = Array.isArray(item?.tracks) ? item.tracks : [];
+  const audioAnalysis = buildAudioAnalysis(item);
+  const missingFields = MISSING_FIELDS.filter(field => !audioAnalysis.available_fields.includes(field));
 
   return {
     schema_version: DNA_SCHEMA_VERSION,
     schema_revision: DNA_SCHEMA_REVISION,
     status: 'partial',
     record_id: getRecordId(item),
-    source: 'catalog-metadata',
+    source: audioAnalysis.available_fields.length > 0
+      ? 'catalog-metadata-plus-authoritative-audio-analysis'
+      : 'catalog-metadata',
     declared: {
       tags: declaredTags,
       tag_source: getDeclaredTagSource(item),
@@ -366,13 +500,15 @@ function buildMusicDNA(item) {
         ? Math.round(durations.reduce((sum, duration) => sum + duration, 0))
         : null,
       has_preview: tracks.some(track => Boolean(track?.preview_url)),
-      source_fields_available: sources.map(source => source.source)
+      source_fields_available: sources.map(source => source.source),
+      audio_analysis: audioAnalysis
     },
-    missing_fields: [...MISSING_FIELDS],
+    audio_analysis: audioAnalysis,
+    missing_fields: missingFields,
     provenance: {
       declared_tags: 'catalog_metadata',
       inferred_signals: 'deterministic_metadata_match',
-      audio_analysis: 'not_available_in_current_catalog',
+      audio_analysis: audioAnalysis.provenance,
       note: 'Evidence strength is source priority, not a measured audio confidence.'
     }
   };
@@ -591,6 +727,9 @@ function buildCollectionStats(items) {
   let recordsWithDescriptions = 0;
   let recordsWithPreviews = 0;
   let trackCount = 0;
+  const audioAnalysisCoverage = Object.fromEntries(
+    TECHNICAL_AUDIO_FIELDS.map(field => [`tracks_with_${field}`, 0])
+  );
 
   records.forEach(item => {
     const tags = getDeclaredTags(item);
@@ -606,6 +745,9 @@ function buildCollectionStats(items) {
     if (tracks.some(track => Boolean(track?.preview_url))) recordsWithPreviews += 1;
 
     const dna = buildMusicDNA(item);
+    Object.keys(audioAnalysisCoverage).forEach(field => {
+      audioAnalysisCoverage[field] += dna.audio_analysis.coverage[field] || 0;
+    });
     dna.inferred_from_metadata.signals.forEach(signal => {
       signalFrequency[signal.id] = (signalFrequency[signal.id] || 0) + 1;
       dimensionFrequency[signal.dimension] = (dimensionFrequency[signal.dimension] || 0) + 1;
@@ -626,14 +768,19 @@ function buildCollectionStats(items) {
       'metadata_profile',
       'tracks',
       'duration_seconds',
-      'preview_url'
+      'preview_url',
+      'audio_analysis'
     ],
     available_dimensions: [...AVAILABLE_METADATA_DIMENSIONS],
     missing_fields: [...MISSING_FIELDS],
     metadata_coverage: {
       records_with_tags: recordsWithTags,
       records_with_descriptions: recordsWithDescriptions,
-      records_with_previews: recordsWithPreviews
+      records_with_previews: recordsWithPreviews,
+      audio_analysis: {
+        status: Object.values(audioAnalysisCoverage).some(value => value > 0) ? 'partial' : 'not_available',
+        ...audioAnalysisCoverage
+      }
     },
     tag_frequency: Object.fromEntries(
       Object.entries(tagFrequency).sort(([, a], [, b]) => b - a).slice(0, 30)
@@ -644,12 +791,13 @@ function buildCollectionStats(items) {
     inferred_dimension_frequency: Object.fromEntries(
       Object.entries(dimensionFrequency).sort(([, a], [, b]) => b - a)
     ),
-    provenance: 'catalog metadata and deterministic text matches; no BPM/key/audio claims'
+    provenance: 'Catalog metadata and deterministic text matches; BPM/key appear only with explicit audio-analysis provenance.'
   };
 }
 
 export {
   buildCollectionStats,
+  buildAudioAnalysis,
   buildMusicDNA,
   getRecordId,
   scoreCatalog

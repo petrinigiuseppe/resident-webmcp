@@ -866,6 +866,16 @@ function getItemSummary(item) {
   };
 }
 
+function getTrackSummary(track) {
+  return {
+    track_id: String(track?.id || ''),
+    title: track?.title || '',
+    artist: track?.artist || '',
+    duration_seconds: Number.isFinite(Number(track?.duration)) ? Number(track.duration) : null,
+    preview_available: Boolean(track?.preview_url)
+  };
+}
+
 function searchCatalog(query, maxResults = MAX_TOOL_OUTPUT_RECORDS) {
   const normalized = trimText(query, 200).toLowerCase();
   if (!normalized) return [];
@@ -1084,8 +1094,108 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
         return {
           ok: true,
           record: getItemSummary(item),
+          tracks: (Array.isArray(item.tracks) ? item.tracks : []).map(getTrackSummary),
           music_dna: buildMusicDNA(item),
           ui_focus: focused
+        };
+      });
+    }
+  });
+
+  await registerTool(modelContext, {
+    name: 'get_player_state',
+    title: 'Read preview player state',
+    description: 'Reads the visible preview player transport: current release and track, play/pause status, current position, duration and site audio state. It does not claim BPM, key or other audio analysis.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    annotations: readOnly,
+    async execute() {
+      const player = api.getPlayerState?.();
+      return player || resultError('PLAYER_UNAVAILABLE', 'The preview player state is not available.');
+    }
+  });
+
+  await registerTool(modelContext, {
+    name: 'play_track',
+    title: 'Play a catalog preview',
+    description: 'Loads and plays one catalog track preview in the visible player. Use inspect_record first to obtain track_id and record_id; omit track_id only to resume the already loaded track. Browser autoplay policy may require a user gesture. This never purchases anything.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        track_id: { type: 'string', minLength: 1, maxLength: 160 },
+        record_id: { type: 'string', minLength: 1, maxLength: 160 }
+      },
+      additionalProperties: false
+    },
+    annotations: uiMutation,
+    async execute(input = {}) {
+      return withAgentActivity('Playing the selected preview', async () => {
+        const trackId = trimText(input.track_id, 160);
+        const recordId = trimText(input.record_id, 160);
+        return api.playTrack?.(trackId, recordId)
+          || resultError('PLAYER_UNAVAILABLE', 'The preview player controls are not available.');
+      });
+    }
+  });
+
+  await registerTool(modelContext, {
+    name: 'pause_track',
+    title: 'Pause the preview player',
+    description: 'Pauses the currently loaded preview and preserves its position for a later play_track call. It never changes My Crate or checkout.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    annotations: uiMutation,
+    async execute() {
+      const player = api.pauseTrack?.();
+      return player || resultError('PLAYER_UNAVAILABLE', 'The preview player controls are not available.');
+    }
+  });
+
+  await registerTool(modelContext, {
+    name: 'seek_track',
+    title: 'Seek the preview player',
+    description: 'Moves the currently loaded preview to an absolute position in seconds. This is explicit transport control only; automatic drop/cue-point detection is not implemented yet.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        position_seconds: { type: 'number', minimum: 0, maximum: 86400 }
+      },
+      required: ['position_seconds'],
+      additionalProperties: false
+    },
+    annotations: uiMutation,
+    async execute(input = {}) {
+      if (typeof input.position_seconds !== 'number' || !Number.isFinite(input.position_seconds)) {
+        return resultError('INVALID_POSITION', 'position_seconds must be a finite number.');
+      }
+      return api.seekTrack?.(input.position_seconds)
+        || resultError('PLAYER_UNAVAILABLE', 'The preview player controls are not available.');
+    }
+  });
+
+  await registerTool(modelContext, {
+    name: 'set_audio_mute',
+    title: 'Mute or unmute site audio',
+    description: 'Sets the site-wide audio state for the current Agent Mode session, including preview playback and agent behavior cues. This is reversible and does not affect checkout.',
+    inputSchema: {
+      type: 'object',
+      properties: { muted: { type: 'boolean' } },
+      required: ['muted'],
+      additionalProperties: false
+    },
+    annotations: uiMutation,
+    async execute(input = {}) {
+      if (typeof input.muted !== 'boolean') {
+        return resultError('INVALID_MUTE_VALUE', 'muted must be a boolean.');
+      }
+      return withAgentActivity(input.muted ? 'Muting site audio' : 'Restoring site audio', async () => {
+        // Keep the existing Agent Mode sound policy as the source of truth so
+        // the visual toggle and the agent tool cannot drift apart.
+        setSoundEnabled(!input.muted);
+        const player = api.setPlayerMuted?.(input.muted) || api.getPlayerState?.();
+        return {
+          ok: true,
+          muted: input.muted,
+          scope: 'site',
+          player_state: player || null
         };
       });
     }
@@ -1151,7 +1261,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   toolRegistrationComplete = true;
   document.documentElement.dataset.webmcp = 'ready';
   dispatch('seph-webmcp-ready', {
-    tool_count: 9,
+    tool_count: 14,
     model_context_source: modelContextSource,
     tools: [
       'start_curator_session',
@@ -1160,6 +1270,11 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
       'dig_by_descriptor',
       'focus_records',
       'inspect_record',
+      'get_player_state',
+      'play_track',
+      'pause_track',
+      'seek_track',
+      'set_audio_mute',
       'manage_crate',
       'prepare_checkout',
       'end_curator_session'
