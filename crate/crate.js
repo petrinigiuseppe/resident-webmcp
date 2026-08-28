@@ -1,5 +1,8 @@
 /* --- 3D Vinyl Crate digging (Beta) crate.js --- */
 import * as THREE from './vendor/three.module.js';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260828-webmcp-m33';
+
+diagnostics.record('runtime', 'crate_module_loaded', { build_version: WEBMCP_BUILD_VERSION });
 
 // Fallback catalog in case the API fetch fails or is blocked
 const FALLBACK_CATALOG = [
@@ -122,7 +125,9 @@ let dragAccumulator = 0;
 const DRAG_THRESHOLD = 50; // pixels to flip a record (for mousewheel only)
 
 // Audio Player state
+const PREVIEW_AUDIO_VOLUME = 0.68;
 let audio = new Audio();
+audio.volume = PREVIEW_AUDIO_VOLUME;
 let currentPlayingTrackId = null;
 let currentPlayingReleaseId = null;
 let currentPlayingTrack = null;
@@ -131,9 +136,13 @@ let playerError = null;
 let siteAudioEnabled = true;
 let uiAudioContext = null;
 let lastNavigationTickAt = 0;
+let pendingPlayback = null;
+let pendingPlaybackResumeInFlight = false;
+let playbackRequestToken = 0;
 const AGENT_NAVIGATION_MIX = {
-  human: 0.055,
-  agent: 0.070
+  // Kept below the behavior cues, but no longer buried under mastered previews.
+  human: 0.099,
+  agent: 0.126
 };
 
 // Initialize Application
@@ -387,6 +396,10 @@ function setSearchQuery(query) {
   if (clearBtn) clearBtn.classList.toggle('hidden', !normalized);
 
   filterAndSortCatalog();
+  diagnostics.record('ui', 'catalog_search', {
+    query: normalized,
+    visible_count: catalog.length
+  }, { snapshot: true });
   return { ok: true, query: normalized, visible_count: catalog.length };
 }
 
@@ -481,6 +494,15 @@ function focusRecordById(recordId) {
 }
 
 function showMyCrateView() {
+  const finish = result => {
+    diagnostics.record('ui', 'crate_view', {
+      view: result?.view || 'shop',
+      ok: Boolean(result?.ok),
+      cart_count: result?.cart_count ?? null,
+      checkout_available: result?.checkout_available ?? null
+    }, { snapshot: true });
+    return result;
+  };
   const checkoutSummary = getCheckoutSummary();
   if (!checkoutSummary.checkout_available) {
     if (isUserCrateViewActive) {
@@ -492,13 +514,13 @@ function showMyCrateView() {
       if (myCrateBtn) myCrateBtn.classList.remove('active');
     }
     updateUIControlsState();
-    return {
+    return finish({
       ok: false,
       error: { code: 'EMPTY_MY_CRATE', message: 'My Crate is empty. Add at least one record before checkout.' },
       view: 'shop',
       cart_count: 0,
       checkout_available: false
-    };
+    });
   }
 
   const myCrateBtn = document.getElementById('view-mycrate-btn');
@@ -510,7 +532,7 @@ function showMyCrateView() {
     const shopBtn = document.getElementById('view-shop-btn');
     if (shopBtn) shopBtn.classList.remove('active');
   }
-  return { ok: true, view: 'my_crate', cart_count: checkoutSummary.cart_count };
+  return finish({ ok: true, view: 'my_crate', cart_count: checkoutSummary.cart_count });
 }
 
 function parsePriceCents(priceText) {
@@ -543,41 +565,51 @@ function getCheckoutSummary() {
 }
 
 function manageCrateRecord(recordId, action) {
+  const finish = result => {
+    diagnostics.record('ui', 'crate_mutation', {
+      record_id: String(recordId || '').slice(0, 160),
+      action: String(action || '').slice(0, 40),
+      ok: Boolean(result?.ok),
+      changed: result?.changed ?? null,
+      cart_count: result?.cart_count ?? null
+    }, { snapshot: true });
+    return result;
+  };
   const item = findMasterCatalogItem(recordId);
   if (!item) {
-    return { ok: false, error: { code: 'RECORD_NOT_FOUND', message: 'Record is not in the loaded catalog.' } };
+    return finish({ ok: false, error: { code: 'RECORD_NOT_FOUND', message: 'Record is not in the loaded catalog.' } });
   }
 
   const normalizedId = getCrateRecordId(item);
   const existingItems = readLocalCrateItems();
   const alreadyInCrate = existingItems.includes(normalizedId);
   if (action === 'add' && alreadyInCrate) {
-    return { ok: true, changed: false, action, record: summarizeCrateItem(item), cart_count: existingItems.length };
+    return finish({ ok: true, changed: false, action, record: summarizeCrateItem(item), cart_count: existingItems.length });
   }
   if (action === 'remove' && !alreadyInCrate) {
-    return { ok: true, changed: false, action, record: summarizeCrateItem(item), cart_count: existingItems.length };
+    return finish({ ok: true, changed: false, action, record: summarizeCrateItem(item), cart_count: existingItems.length });
   }
 
   const focused = focusRecordById(normalizedId);
-  if (!focused.ok) return focused;
+  if (!focused.ok) return finish(focused);
 
   const buyBtn = document.getElementById('buy-btn');
   if (!buyBtn) {
-    return { ok: false, error: { code: 'CRATE_CONTROL_UNAVAILABLE', message: 'The existing Add to Crate control is unavailable.' } };
+    return finish({ ok: false, error: { code: 'CRATE_CONTROL_UNAVAILABLE', message: 'The existing Add to Crate control is unavailable.' } });
   }
 
   // Reuse the existing UI handler so local storage, animation, badge and
   // account-sync behavior remain one code path. This never reaches checkout.
   buyBtn.click();
   const updatedItems = readLocalCrateItems();
-  return {
+  return finish({
     ok: true,
     changed: true,
     action,
     record: summarizeCrateItem(item),
     cart_count: updatedItems.length,
     purchase_started: false
-  };
+  });
 }
 
 function publishCrateApi() {
@@ -979,6 +1011,12 @@ function handleDragMove(x, y) {
     if (newIndex !== userActiveIndex) {
       const previousIndex = userActiveIndex;
       userActiveIndex = newIndex;
+      diagnostics.record('ui', 'crate_navigation', {
+        source: 'human',
+        view: 'my_crate',
+        from_index: previousIndex,
+        to_index: newIndex
+      }, { snapshot: true });
       playCrateNavigationTick(newIndex > previousIndex ? 1 : -1);
       if (navigator.vibrate) {
         try { navigator.vibrate(12); } catch (e) {}
@@ -997,6 +1035,12 @@ function handleDragMove(x, y) {
     if (newIndex !== activeIndex) {
       const previousIndex = activeIndex;
       activeIndex = newIndex;
+      diagnostics.record('ui', 'crate_navigation', {
+        source: 'human',
+        view: 'shop',
+        from_index: previousIndex,
+        to_index: newIndex
+      }, { snapshot: true });
       playCrateNavigationTick(newIndex > previousIndex ? 1 : -1);
       if (navigator.vibrate) {
         try { navigator.vibrate(12); } catch (e) {}
@@ -1181,6 +1225,7 @@ function initUI() {
   // Custom Audio Player Listeners
   const playPauseBtn = document.getElementById('player-play-btn');
   if (playPauseBtn) playPauseBtn.addEventListener('click', toggleAudioPlayback);
+  installPendingPlaybackGesture();
 
   const handlePlayerReleaseFocus = (e) => {
     e.preventDefault();
@@ -1230,6 +1275,7 @@ function initUI() {
 
   audio.addEventListener('play', () => {
     playerError = null;
+    clearPendingPlayback();
     setPlayerUiPlaying(true);
     updateTrackListIcons();
     emitPlayerState('playback_started');
@@ -1240,6 +1286,7 @@ function initUI() {
     emitPlayerState('playback_paused');
   });
   audio.addEventListener('error', () => {
+    clearPendingPlayback();
     playerError = {
       code: 'PREVIEW_LOAD_FAILED',
       message: 'The selected preview could not be loaded.'
@@ -2571,6 +2618,13 @@ function startAgentDigPreview() {
     document.documentElement.dataset.agentDigPreviewIndex = String(agentDigPreviewIndex);
     showRecordDetails(agentDigPreviewIndex);
     updateRecordHeights();
+    diagnostics.record('ui', 'crate_navigation', {
+      source: 'agent',
+      operation: agentVisualOperation,
+      view: 'shop',
+      from_index: previousPreviewIndex,
+      to_index: agentDigPreviewIndex
+    }, { snapshot: true });
     if (previousPreviewIndex >= 0) {
       playCrateNavigationTick(agentDigPreviewIndex > previousPreviewIndex ? 1 : -1, { agent: true });
     }
@@ -2963,6 +3017,66 @@ function findReleaseByTrackId(trackId) {
   return list.find(release => release.tracks && release.tracks.some(t => t.id === trackId)) || null;
 }
 
+function getPendingPlaybackSummary() {
+  return pendingPlayback ? { ...pendingPlayback } : null;
+}
+
+function syncPendingPlaybackState() {
+  const requiresGesture = Boolean(pendingPlayback);
+  const player = document.getElementById('custom-player');
+  const playPauseBtn = document.getElementById('player-play-btn');
+
+  document.documentElement.dataset.playerAudio = requiresGesture ? 'gesture-required' : 'ready';
+  if (player) player.dataset.audioState = requiresGesture ? 'gesture-required' : 'ready';
+  if (playPauseBtn) {
+    playPauseBtn.setAttribute(
+      'aria-label',
+      requiresGesture ? 'Play preview (tap or click to start)' : 'Play/Pause'
+    );
+  }
+}
+
+function setPendingPlayback() {
+  if (!currentPlayingTrackId) return;
+  pendingPlayback = {
+    track_id: currentPlayingTrackId,
+    release_record_id: currentPlayingReleaseId,
+    track_title: currentPlayingTrack?.title || null,
+    reason: 'user_gesture_required'
+  };
+  syncPendingPlaybackState();
+}
+
+function clearPendingPlayback() {
+  if (!pendingPlayback) return;
+  pendingPlayback = null;
+  syncPendingPlaybackState();
+}
+
+function isPendingPlaybackGestureExcluded(event) {
+  const target = event?.target;
+  return Boolean(target?.closest?.(
+    '#player-play-btn, #agent-debug-panel, #agent-mode-hud, #agent-debug-trigger, [data-agent-debug-action], button, a, input, textarea, select'
+  ));
+}
+
+function resumePendingPlayback(event) {
+  if (event?.isTrusted !== true || !pendingPlayback || !siteAudioEnabled) return;
+  if (event.type === 'keydown' && !['Enter', ' '].includes(event.key)) return;
+  if (isPendingPlaybackGestureExcluded(event) || pendingPlaybackResumeInFlight) return;
+
+  pendingPlaybackResumeInFlight = true;
+  Promise.resolve(startAudioPlayback()).finally(() => {
+    pendingPlaybackResumeInFlight = false;
+  });
+}
+
+function installPendingPlaybackGesture() {
+  ['pointerdown', 'keydown', 'touchstart'].forEach(eventName => {
+    window.addEventListener(eventName, resumePendingPlayback, { passive: true });
+  });
+}
+
 function getPlayerState() {
   const audioDuration = Number(audio.duration);
   const declaredDuration = Number(currentPlayingTrack?.duration);
@@ -2994,6 +3108,8 @@ function getPlayerState() {
     release_title: currentRelease?.title || null,
     muted: Boolean(audio.muted || !siteAudioEnabled),
     site_audio_enabled: siteAudioEnabled,
+    requires_user_gesture: Boolean(pendingPlayback),
+    pending_playback: getPendingPlaybackSummary(),
     source: audio.currentSrc || audio.src || currentPlayingTrack?.preview_url || null,
     ready_state: audio.readyState,
     error: playerError
@@ -3096,10 +3212,31 @@ function findTrackElement(releaseId, trackId) {
       && element.dataset.trackId === String(trackId || '')) || null;
 }
 
+function invalidatePlaybackRequests() {
+  playbackRequestToken += 1;
+}
+
+function supersededPlaybackResult() {
+  return {
+    ok: false,
+    error: {
+      code: 'PLAYBACK_REQUEST_SUPERSEDED',
+      message: 'The playback request was superseded by a newer player action.'
+    },
+    superseded: true,
+    player_state: getPlayerState()
+  };
+}
+
 function startAudioPlayback() {
+  const requestToken = ++playbackRequestToken;
+  const requestedTrackId = currentPlayingTrackId;
   if (!currentPlayingTrackId || !(audio.currentSrc || audio.src)) {
     return Promise.resolve(playerErrorResult('NO_TRACK_LOADED', 'No track is loaded in the player.'));
   }
+
+  const isCurrentRequest = () => requestToken === playbackRequestToken
+    && requestedTrackId === currentPlayingTrackId;
 
   playerError = null;
   if (audio.ended) {
@@ -3109,25 +3246,39 @@ function startAudioPlayback() {
       // Let the native play() promise provide the actionable playback error.
     }
   }
-  return audio.play()
+  const handlePlaybackFailure = error => {
+    if (!isCurrentRequest()) return supersededPlaybackResult();
+    const blocked = error?.name === 'NotAllowedError';
+    if (blocked) setPendingPlayback();
+    else clearPendingPlayback();
+    playerError = {
+      code: blocked ? 'PLAYBACK_BLOCKED' : 'PLAYBACK_FAILED',
+      message: blocked
+        ? 'The browser requires a user gesture before audio playback can start.'
+        : String(error?.message || 'The preview could not be played.')
+    };
+    setPlayerUiPlaying(false);
+    updateTrackListIcons();
+    emitPlayerState('playback_failed');
+    return playerErrorResult(playerError.code, playerError.message, {
+      requires_user_gesture: blocked,
+      pending_playback: getPendingPlaybackSummary()
+    });
+  };
+
+  try {
+    return Promise.resolve(audio.play())
     .then(() => {
+      if (!isCurrentRequest()) return supersededPlaybackResult();
+      clearPendingPlayback();
       setPlayerUiPlaying(true);
       updateTrackListIcons();
       return { ok: true, ...emitPlayerState('playback_started') };
     })
-    .catch(error => {
-      const blocked = error?.name === 'NotAllowedError';
-      playerError = {
-        code: blocked ? 'PLAYBACK_BLOCKED' : 'PLAYBACK_FAILED',
-        message: blocked
-          ? 'The browser requires a user gesture before audio playback can start.'
-          : String(error?.message || 'The preview could not be played.')
-      };
-      setPlayerUiPlaying(false);
-      updateTrackListIcons();
-      emitPlayerState('playback_failed');
-      return playerErrorResult(playerError.code, playerError.message);
-    });
+    .catch(handlePlaybackFailure);
+  } catch (error) {
+    return Promise.resolve(handlePlaybackFailure(error));
+  }
 }
 
 function seekPlayer(positionSeconds) {
@@ -3166,6 +3317,10 @@ function seekPlayer(positionSeconds) {
 function setSiteAudioEnabled(enabled) {
   siteAudioEnabled = Boolean(enabled);
   audio.muted = !siteAudioEnabled;
+  if (!siteAudioEnabled) {
+    invalidatePlaybackRequests();
+    clearPendingPlayback();
+  }
   document.documentElement.dataset.siteAudio = siteAudioEnabled ? 'on' : 'off';
   return emitPlayerState('site_audio_changed');
 }
@@ -3201,6 +3356,8 @@ function playTrack(track, trackItemElement, { toggleIfCurrent = true, recordId =
     currentPlayingTrackItem.classList.remove('active');
   }
 
+  invalidatePlaybackRequests();
+  clearPendingPlayback();
   currentPlayingTrackItem = trackItemElement;
   if (currentPlayingTrackItem) {
     currentPlayingTrackItem.classList.add('active');
@@ -3274,6 +3431,7 @@ function toggleAudioPlayback() {
   if (audio.paused) {
     return startAudioPlayback();
   } else {
+    invalidatePlaybackRequests();
     audio.pause();
     setPlayerUiPlaying(false);
     updateTrackListIcons();
@@ -3285,6 +3443,8 @@ function pauseAudio() {
   if (!currentPlayingTrackId || !(audio.currentSrc || audio.src)) {
     return playerErrorResult('NO_TRACK_LOADED', 'No track is loaded in the player.');
   }
+  invalidatePlaybackRequests();
+  clearPendingPlayback();
   audio.pause();
   setPlayerUiPlaying(false);
   updateTrackListIcons();

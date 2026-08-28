@@ -10,13 +10,14 @@
  */
 
 import { buildCollectionStats, buildMusicDNA, getRecordId, scoreCatalog } from './song-dna.js';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260828-webmcp-m33';
 
 const MAX_TOOL_OUTPUT_RECORDS = 12;
 const ACTIVE_STATES = new Set(['loading', 'active', 'busy', 'standby']);
 const DEBUG_QUERY_KEYS = ['webmcp_debug', 'agent_debug'];
-const SESSION_HANDSHAKE_MS = 280;
+const SESSION_HANDSHAKE_MS = 180;
 const AGENT_INTRO_MS = 2400;
-const DIG_PREVIEW_MS = 860;
+const DIG_PREVIEW_MS = 420;
 const DRAG_MARGIN_PX = 12;
 const AGENT_OPERATION_LABELS = {
   human: 'Human control',
@@ -45,6 +46,9 @@ let activityDepth = 0;
 let toolRegistrationComplete = false;
 let sessionStartedAt = null;
 let returnTransitionId = 0;
+let curatorSessionPromise = null;
+let curatorSessionId = null;
+let curatorSessionSequence = 0;
 // Agent Mode sound cues are intentionally enabled for the first session so
 // the activation handoff is audible. The user can mute them from the orb.
 let agentSoundEnabled = true;
@@ -53,10 +57,11 @@ let pendingAgentActivationCue = false;
 let debugActionPromise = null;
 let agentIntroTimer = null;
 const AGENT_BEHAVIOR_MIX = {
-  activation: 0.070,
-  active: 0.060,
-  busy: 0.052,
-  returning: 0.052
+  // Calibrated against the preview player's reduced native level in crate.js.
+  activation: 0.126,
+  active: 0.108,
+  busy: 0.094,
+  returning: 0.094
 };
 let agentIntroHasShown = false;
 let agentModeHasBeenEntered = false;
@@ -163,7 +168,7 @@ function playAgentCue(state, operation) {
       master.gain.exponentialRampToValueAtTime(AGENT_BEHAVIOR_MIX.activation, now + 0.34);
       master.gain.exponentialRampToValueAtTime(0.0001, now + introDuration - 0.16);
       delay.delayTime.setValueAtTime(0.38, now);
-      tail.gain.setValueAtTime(0.1, now);
+      tail.gain.setValueAtTime(0.14, now);
       master.connect(filter);
       filter.connect(context.destination);
       master.connect(delay);
@@ -229,8 +234,8 @@ function playAgentCue(state, operation) {
   }
 }
 
-function unlockAgentAudio() {
-  if (!agentSoundEnabled) return;
+function unlockAgentAudio(event) {
+  if (event?.isTrusted !== true) return;
   const context = getAgentAudioContext();
   if (!context || context.state !== 'suspended') return;
   context.resume().then(() => {
@@ -241,7 +246,7 @@ function unlockAgentAudio() {
 }
 
 function installAgentAudioUnlock() {
-  const unlock = () => unlockAgentAudio();
+  const unlock = event => unlockAgentAudio(event);
   ['pointerdown', 'keydown', 'touchstart'].forEach(eventName => {
     window.addEventListener(eventName, unlock, { passive: true });
   });
@@ -266,9 +271,9 @@ function setSoundEnabled(enabled) {
 function restoreHumanAudioAfterExit() {
   agentSoundEnabled = false;
   pendingAgentActivationCue = false;
-  if (agentAudioContext && agentAudioContext.state !== 'closed') {
-    agentAudioContext.suspend().catch(() => {});
-  }
+  // Keep an already user-unlocked shared context alive across the soft handoff.
+  // The sound gate above stops new Agent cues without forcing another gesture
+  // when the next Agent Mode session starts.
   updateSoundControl();
   // Hand the site's audio policy back to the human surface. Agent cues stop;
   // any human preview player is unmuted for the next explicit interaction.
@@ -456,6 +461,9 @@ function releaseBusy() {
 }
 
 async function withAgentActivity(text, work) {
+  const sessionResult = await ensureAgentSession(text);
+  if (sessionResult?.ok === false) return sessionResult;
+
   armBusy(text);
   try {
     return await work();
@@ -464,8 +472,41 @@ async function withAgentActivity(text, work) {
   }
 }
 
-async function startCuratorSession(api, intent = '') {
-  const enteringAgentMode = agentState === 'human' || agentState === 'override';
+async function ensureAgentSession(intent = 'resume curator request') {
+  const api = getCrateApi();
+  if (!api) return resultError('CRATE_API_UNAVAILABLE', 'The crate controls are not ready for Agent Mode.');
+
+  if (curatorSessionPromise) return curatorSessionPromise;
+
+  const needsSession = !agentModeHasBeenEntered || !ACTIVE_STATES.has(agentState);
+  if (needsSession) {
+    return startCuratorSession(api, intent);
+  }
+
+  if (agentState === 'standby') {
+    setAgentState('active', { operation: 'listening' });
+  }
+  return null;
+}
+
+function startCuratorSession(api, intent = '') {
+  if (curatorSessionPromise) return curatorSessionPromise;
+
+  const sessionPromise = startCuratorSessionInternal(api, intent);
+  curatorSessionPromise = sessionPromise;
+  sessionPromise.then(
+    () => {
+      if (curatorSessionPromise === sessionPromise) curatorSessionPromise = null;
+    },
+    () => {
+      if (curatorSessionPromise === sessionPromise) curatorSessionPromise = null;
+    }
+  );
+  return sessionPromise;
+}
+
+async function startCuratorSessionInternal(api, intent = '') {
+  const enteringAgentMode = !ACTIVE_STATES.has(agentState) || !agentModeHasBeenEntered;
   if (enteringAgentMode) {
     agentModeHasBeenEntered = true;
     // Every new Agent Mode session starts audible again; muting remains a
@@ -475,6 +516,16 @@ async function startCuratorSession(api, intent = '') {
     updateSoundControl();
   }
   sessionStartedAt = new Date().toISOString();
+  if (enteringAgentMode || !curatorSessionId) {
+    curatorSessionId = `curator-${Date.now().toString(36)}-${++curatorSessionSequence}`;
+    diagnostics.setSession(curatorSessionId, {
+      intent: trimText(intent, 400) || null
+    });
+    diagnostics.record('session', 'started', {
+      session_id: curatorSessionId,
+      intent: trimText(intent, 400) || null
+    });
+  }
   setAgentState('loading', { text: 'Connecting to the crate', operation: 'loading' });
   if (enteringAgentMode && !agentIntroHasShown) {
     agentIntroHasShown = true;
@@ -496,6 +547,12 @@ async function startCuratorSession(api, intent = '') {
     agent_mode: 'active',
     session_started_at: sessionStartedAt,
     intent: trimText(intent, 400) || null,
+    runtime: {
+      build_version: WEBMCP_BUILD_VERSION,
+      page_session_id: diagnostics.pageSessionId,
+      curator_session_id: curatorSessionId,
+      diagnostics: 'browser_download'
+    },
     ...api.status(),
     next_step: 'Use search_catalog for exact metadata search or dig_by_descriptor for Song DNA metadata matching.'
   };
@@ -514,12 +571,21 @@ async function returnToHumanMode(api) {
     return resultError('SESSION_TRANSITION_INTERRUPTED', 'The return to Human Mode was interrupted by a new curator session.');
   }
   api.clearAgentFocus();
-  sessionStartedAt = null;
   await wait(Math.max(0, RETURN_TO_HUMAN_MS - RETURN_FOCUS_CLEAR_MS));
   if (transitionId !== returnTransitionId) {
     return resultError('SESSION_TRANSITION_INTERRUPTED', 'The return to Human Mode was interrupted by a new curator session.');
   }
   setAgentState('human', { operation: 'human' });
+  const endedSessionId = curatorSessionId;
+  const endedSessionStartedAt = sessionStartedAt;
+  diagnostics.record('session', 'ended', {
+    session_id: endedSessionId,
+    session_started_at: endedSessionStartedAt,
+    transition: 'soft_return'
+  });
+  diagnostics.setSession(null);
+  curatorSessionId = null;
+  sessionStartedAt = null;
   return {
     ok: true,
     agent_mode: 'human',
@@ -564,7 +630,7 @@ async function ensureDebugSession(api) {
   }
 }
 
-async function runDebugAction(api, action) {
+async function runDebugActionInternal(api, action) {
   if (action === 'start') {
     return startCuratorSession(api, 'local visual debug');
   }
@@ -677,6 +743,18 @@ async function runDebugAction(api, action) {
   }
 
   return resultError('UNKNOWN_DEBUG_ACTION', `Unknown debug action: ${action}`);
+}
+
+async function runDebugAction(api, action) {
+  const call = diagnostics.startTool(`debug_${action}`, { action });
+  try {
+    const result = await runDebugActionInternal(api, action);
+    diagnostics.finishTool(call, result);
+    return result;
+  } catch (error) {
+    diagnostics.failTool(call, error);
+    throw error;
+  }
 }
 
 function installDragHandle(element, handle = element, { desktopOnly = true } = {}) {
@@ -801,6 +879,7 @@ function installDebugPanel(api) {
   const trigger = document.getElementById('agent-debug-trigger');
   const panel = document.getElementById('agent-debug-panel');
   const close = document.getElementById('agent-debug-close');
+  const download = document.getElementById('agent-debug-download');
   const status = document.getElementById('agent-debug-status');
   const actions = [...document.querySelectorAll('[data-agent-debug-action]')];
   if (!trigger || !panel || !close || !status || actions.length === 0) return;
@@ -819,6 +898,13 @@ function installDebugPanel(api) {
 
   trigger.addEventListener('click', () => setOpen(true));
   close.addEventListener('click', () => setOpen(false));
+  if (download) {
+    download.addEventListener('click', event => {
+      event.preventDefault();
+      const result = diagnostics.download();
+      if (!result.ok) status.textContent = 'Log download failed';
+    });
+  }
   window.addEventListener('seph-agent-state', updateDebugPanel);
   window.addEventListener('seph-agent-focus', updateDebugPanel);
 
@@ -915,7 +1001,22 @@ function installHumanOverride() {
 }
 
 async function registerTool(modelContext, tool) {
-  await modelContext.registerTool(tool);
+  const instrumentedTool = {
+    ...tool,
+    async execute(input = {}) {
+      const call = diagnostics.startTool(tool.name, input);
+      try {
+        const result = await tool.execute(input);
+        diagnostics.finishTool(call, result);
+        return result;
+      } catch (error) {
+        diagnostics.failTool(call, error);
+        throw error;
+      }
+    }
+  };
+  await modelContext.registerTool(instrumentedTool);
+  diagnostics.record('runtime', 'tool_registered', { tool: tool.name });
 }
 
 function getAvailableModelContext() {
@@ -953,7 +1054,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   await registerTool(modelContext, {
     name: 'start_curator_session',
     title: 'Start Synesthetic Curator session',
-    description: 'Call this first. Activates the visible Agent Mode HUD and confirms that the page crate tools are ready. It does not purchase anything.',
+    description: 'Call this first for a new request. It is safe to call again after a resumed command: it reactivates the visible Agent Mode HUD and confirms that the page crate tools are ready. It does not purchase anything.',
     inputSchema: {
       type: 'object',
       properties: { intent: { type: 'string', maxLength: 400 } },
@@ -1105,12 +1206,14 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   await registerTool(modelContext, {
     name: 'get_player_state',
     title: 'Read preview player state',
-    description: 'Reads the visible preview player transport: current release and track, play/pause status, current position, duration and site audio state. It does not claim BPM, key or other audio analysis.',
+    description: 'Reads the visible preview player transport: current release and track, play/pause status, current position, duration and site audio state. It also reactivates Agent Mode when a resumed command needs it. It does not claim BPM, key or other audio analysis.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-    annotations: readOnly,
+    annotations: uiMutation,
     async execute() {
-      const player = api.getPlayerState?.();
-      return player || resultError('PLAYER_UNAVAILABLE', 'The preview player state is not available.');
+      return withAgentActivity('Reading the preview player', async () => {
+        const player = api.getPlayerState?.();
+        return player || resultError('PLAYER_UNAVAILABLE', 'The preview player state is not available.');
+      });
     }
   });
 
@@ -1144,8 +1247,10 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: uiMutation,
     async execute() {
-      const player = api.pauseTrack?.();
-      return player || resultError('PLAYER_UNAVAILABLE', 'The preview player controls are not available.');
+      return withAgentActivity('Pausing the selected preview', async () => {
+        const player = api.pauseTrack?.();
+        return player || resultError('PLAYER_UNAVAILABLE', 'The preview player controls are not available.');
+      });
     }
   });
 
@@ -1166,8 +1271,8 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
       if (typeof input.position_seconds !== 'number' || !Number.isFinite(input.position_seconds)) {
         return resultError('INVALID_POSITION', 'position_seconds must be a finite number.');
       }
-      return api.seekTrack?.(input.position_seconds)
-        || resultError('PLAYER_UNAVAILABLE', 'The preview player controls are not available.');
+      return withAgentActivity('Seeking the selected preview', async () => api.seekTrack?.(input.position_seconds)
+        || resultError('PLAYER_UNAVAILABLE', 'The preview player controls are not available.'));
     }
   });
 
@@ -1283,6 +1388,10 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
 }
 
 async function boot() {
+  diagnostics.record('runtime', 'adapter_boot', {
+    build_version: WEBMCP_BUILD_VERSION,
+    page_session_id: diagnostics.pageSessionId
+  });
   installHumanOverride();
   installAgentSoundControl();
   installAgentHudDrag();
@@ -1292,6 +1401,10 @@ async function boot() {
     const api = await waitForCrateApi();
     installDebugPanel(api);
     const modelContext = getAvailableModelContext();
+    diagnostics.record('runtime', 'model_context_probe', {
+      source: modelContext.source,
+      available: Boolean(modelContext.context)
+    });
     if (!modelContext.context) {
       document.documentElement.dataset.webmcp = 'unsupported';
       dispatch('seph-webmcp-unsupported', {
