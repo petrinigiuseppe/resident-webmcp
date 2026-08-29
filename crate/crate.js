@@ -1,6 +1,6 @@
 /* --- 3D Vinyl Crate digging (Beta) crate.js --- */
 import * as THREE from './vendor/three.module.js';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260829-webmcp-m36';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260829-webmcp-m38';
 
 diagnostics.record('runtime', 'crate_module_loaded', { build_version: WEBMCP_BUILD_VERSION });
 
@@ -148,6 +148,105 @@ const AGENT_NAVIGATION_MIX = {
   human: 0.099,
   agent: 0.126
 };
+
+const THEME_STORAGE_KEY = 'sephmartin.theme';
+const THEME_PREFERENCES = new Set(['light', 'dark', 'system']);
+let activeThemePreference = 'system';
+
+function normalizeThemePreference(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return THEME_PREFERENCES.has(normalized) ? normalized : 'system';
+}
+
+function getThemePreference() {
+  try {
+    const stored = String(window.localStorage?.getItem(THEME_STORAGE_KEY) || '').trim().toLowerCase();
+    if (THEME_PREFERENCES.has(stored)) {
+      activeThemePreference = stored;
+      return stored;
+    }
+  } catch (error) {
+    // Continue with the in-memory preference when storage is restricted.
+  }
+  return activeThemePreference;
+}
+
+function getSystemTheme() {
+  try {
+    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  } catch (error) {
+    return 'dark';
+  }
+}
+
+function getResolvedTheme(preference = getThemePreference()) {
+  return preference === 'system' ? getSystemTheme() : preference;
+}
+
+function syncThemeStylesheet(preference, resolvedTheme) {
+  const lightStylesheet = document.getElementById('crate-light-stylesheet');
+  if (!lightStylesheet) return;
+  lightStylesheet.media = preference === 'system'
+    ? '(prefers-color-scheme: light)'
+    : (resolvedTheme === 'light' ? 'all' : 'not all');
+}
+
+function getThemeState() {
+  const preference = getThemePreference();
+  return {
+    preference,
+    theme: getResolvedTheme(preference),
+    system_theme: getSystemTheme()
+  };
+}
+
+function setTheme(theme, { persist = true, source = 'webmcp', record = true } = {}) {
+  const preference = normalizeThemePreference(theme);
+  if (!THEME_PREFERENCES.has(String(theme || '').trim().toLowerCase())) {
+    return {
+      ok: false,
+      error: { code: 'INVALID_THEME', message: 'theme must be light, dark, or system.' }
+    };
+  }
+
+  const resolvedTheme = getResolvedTheme(preference);
+  const root = document.documentElement;
+  activeThemePreference = preference;
+  root.dataset.themePreference = preference;
+  if (preference === 'system') delete root.dataset.theme;
+  else root.dataset.theme = preference;
+  root.style.colorScheme = resolvedTheme;
+  syncThemeStylesheet(preference, resolvedTheme);
+
+  if (persist) {
+    try {
+      window.localStorage?.setItem(THEME_STORAGE_KEY, preference);
+    } catch (error) {
+      // A storage restriction must not prevent a live theme change.
+    }
+  }
+  syncThemeWithBrowser();
+
+  const result = {
+    ok: true,
+    preference,
+    theme: resolvedTheme,
+    system_theme: getSystemTheme(),
+    persisted: Boolean(persist)
+  };
+  if (record) {
+    diagnostics.record('ui', 'theme_changed', { ...result, source }, { snapshot: true });
+    window.dispatchEvent(new CustomEvent('seph-theme-change', { detail: { ...result, source } }));
+  }
+  return result;
+}
+
+function initializeTheme() {
+  const preference = getThemePreference();
+  setTheme(preference, { persist: false, source: 'initial', record: false });
+}
+
+initializeTheme();
 
 // Initialize Application
 document.addEventListener('DOMContentLoaded', () => {
@@ -353,7 +452,7 @@ function compareCatalogItems(a, b) {
 
 function filterAndSortCatalog(skipApply = false, { preservePlayer = true } = {}) {
   const localItems = readLocalCrateItems();
-  let workingList = masterCatalog.filter(item => {
+  let workingList = getDigitalCatalog().filter(item => {
     return !localItems.includes(getCrateRecordId(item));
   });
 
@@ -403,10 +502,36 @@ function setCatalogSort(sort) {
   };
 }
 
-function getCrateRecordId(item) {
+function getLegacyPageSlug(item) {
   const pageUrl = String(item?.page_url || '');
   const pageSlug = pageUrl.split('/').filter(Boolean).pop();
-  return String(item?.record_id || pageSlug || item?.slug || '').trim();
+  return String(pageSlug || item?.slug || '').trim();
+}
+
+function getCrateRecordId(item) {
+  const explicitId = String(item?.record_id || '').trim();
+  if (explicitId) return explicitId;
+
+  const pageSlug = getLegacyPageSlug(item);
+  if (!pageSlug) return String(item?.slug || '').trim();
+
+  // Keep existing album crate IDs stable, but separate a merch listing that
+  // shares the same Bandcamp page URL (for example Sade's vinyl edition).
+  return String(item?.type || '').toLowerCase() === 'merch'
+    ? `${pageSlug}--merch`
+    : pageSlug;
+}
+
+function isPhysicalVinylItem(item) {
+  return String(item?.type || '').trim().toLowerCase() === 'merch';
+}
+
+function getDigitalCatalog() {
+  return masterCatalog.filter(item => !isPhysicalVinylItem(item));
+}
+
+function getPhysicalCatalog() {
+  return masterCatalog.filter(isPhysicalVinylItem);
 }
 
 function findMasterCatalogItem(recordId) {
@@ -414,6 +539,7 @@ function findMasterCatalogItem(recordId) {
   if (!normalized) return null;
   return masterCatalog.find(item => (
     getCrateRecordId(item) === normalized ||
+    getLegacyPageSlug(item) === normalized ||
     String(item?.slug || '') === normalized ||
     String(item?.page_url || '') === normalized
   )) || null;
@@ -603,6 +729,45 @@ function showMyCrateView() {
   return finish({ ok: true, view: 'my_crate', cart_count: checkoutSummary.cart_count });
 }
 
+function showMainCrateView() {
+  const finish = result => {
+    diagnostics.record('ui', 'crate_view', {
+      view: result?.view || 'shop',
+      ok: Boolean(result?.ok),
+      cart_count: result?.cart_count ?? null,
+      checkout_available: result?.checkout_available ?? null
+    }, { snapshot: true });
+    return result;
+  };
+
+  isUserCrateViewActive = false;
+  globalCamXOffset = 0;
+  const shopBtn = document.getElementById('view-shop-btn');
+  const myCrateBtn = document.getElementById('view-mycrate-btn');
+  const viewSwitcher = document.querySelector('.view-switcher-pill');
+  if (shopBtn) shopBtn.classList.add('active');
+  if (myCrateBtn) myCrateBtn.classList.remove('active');
+  if (viewSwitcher) viewSwitcher.classList.remove('active-mycrate');
+
+  if (currentSearchQuery) {
+    currentSearchQuery = '';
+    const searchInput = document.getElementById('crate-search');
+    const clearBtn = document.getElementById('search-clear');
+    if (searchInput) searchInput.value = '';
+    if (clearBtn) clearBtn.classList.add('hidden');
+  }
+  filterAndSortCatalog(false, { preservePlayer: true });
+  deselectRecord({ preservePlayer: true });
+  updateUIControlsState();
+  return finish({
+    ok: true,
+    view: 'shop',
+    cart_count: readLocalCrateItems().length,
+    visible_count: catalog.length,
+    player_preserved: Boolean(currentPlayingTrackId)
+  });
+}
+
 function parsePriceCents(priceText) {
   const numeric = String(priceText || '').replace(/[^\d.,]/g, '').replace(',', '.');
   const parsed = Number.parseFloat(numeric);
@@ -686,6 +851,8 @@ function publishCrateApi() {
       ready: masterCatalog.length > 0,
       catalog_loaded: masterCatalog.length > 0,
       item_count: masterCatalog.length,
+      digital_item_count: getDigitalCatalog().length,
+      hidden_format_item_count: getPhysicalCatalog().length,
       visible_item_count: catalog.length,
       cart_count: readLocalCrateItems().length,
       site_audio_enabled: siteAudioEnabled,
@@ -695,8 +862,12 @@ function publishCrateApi() {
       purchase_automation: false
     }),
     getMasterCatalog: () => masterCatalog.slice(),
+    getDigitalCatalog: () => getDigitalCatalog(),
+    getPhysicalCatalog: () => getPhysicalCatalog(),
     getVisibleCatalog: () => catalog.slice(),
     setCatalogSort,
+    getTheme: getThemeState,
+    setTheme,
     getPlayerState,
     playTrack: playTrackById,
     pauseTrack: pauseAudio,
@@ -704,7 +875,7 @@ function publishCrateApi() {
     setPlayerMuted: muted => setSiteAudioEnabled(!Boolean(muted)),
     searchCatalog: (query, maxResults = 12) => {
       const normalized = String(query || '').toLowerCase().trim();
-      return masterCatalog
+      return getDigitalCatalog()
         .filter(item => (
           String(item.title || '').toLowerCase().includes(normalized) ||
           String(item.artist || '').toLowerCase().includes(normalized)
@@ -731,6 +902,7 @@ function publishCrateApi() {
     clearAgentFocus: clearAgentFocusRecords,
     manageCrate: manageCrateRecord,
     showMyCrate: showMyCrateView,
+    showMainCrate: showMainCrateView,
     prepareCheckout: () => {
       const view = showMyCrateView();
       if (!view.ok) return view;
@@ -1561,13 +1733,7 @@ function initUI() {
 
   if (shopBtn && myCrateBtn) {
     shopBtn.addEventListener('click', () => {
-      isUserCrateViewActive = false;
-      globalCamXOffset = 0;
-      shopBtn.classList.add('active');
-      myCrateBtn.classList.remove('active');
-      if (viewSwitcher) viewSwitcher.classList.remove('active-mycrate');
-      deselectRecord();
-      updateUIControlsState();
+      showMainCrateView();
     });
 
     myCrateBtn.addEventListener('click', () => {
@@ -1919,12 +2085,16 @@ function initThree() {
   // Listen for prefers-color-scheme media changes
   try {
     window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
-      syncThemeWithBrowser();
+      if (getThemePreference() === 'system') {
+        setTheme('system', { persist: false, source: 'system', record: true });
+      }
     });
   } catch (e) {
     try {
       window.matchMedia('(prefers-color-scheme: light)').addListener(() => {
-        syncThemeWithBrowser();
+        if (getThemePreference() === 'system') {
+          setTheme('system', { persist: false, source: 'system', record: true });
+        }
       });
     } catch (err) {}
   }
@@ -1935,7 +2105,7 @@ function initThree() {
 
 function syncThemeWithBrowser() {
   if (!scene) return;
-  const isLightMode = window.matchMedia('(prefers-color-scheme: light)').matches;
+  const isLightMode = getResolvedTheme() === 'light';
   const isMobile = window.innerWidth < 1024;
   syncAgentCrateAuraTheme(isLightMode);
 
@@ -2822,7 +2992,7 @@ function showRecordDetails(index) {
     return;
   }
   const item = isUserCrateViewActive
-    ? masterCatalog.find(c => c.page_url.split('/').pop() === userRecordsData[index].slug)
+    ? findMasterCatalogItem(userRecordsData[index].slug)
     : catalog[index];
   if (!item) return;
 
@@ -2946,7 +3116,7 @@ function showRecordDetails(index) {
 
   // Crate Toggle Setup
   const buyBtn = document.getElementById('buy-btn');
-  const slug = item.page_url.split('/').pop();
+  const slug = getCrateRecordId(item);
   buyBtn.setAttribute('data-slug', slug);
   buyBtn.dataset.priceText = String(item.price_text || '');
   
@@ -3568,7 +3738,7 @@ function playNextTrack() {
   if (nextTrackIndex < parentRelease.tracks.length) {
     const nextTrack = parentRelease.tracks[nextTrackIndex];
     const currentDetailSlug = document.getElementById('buy-btn')?.getAttribute('data-slug');
-    const parentSlug = parentRelease.page_url?.split('/').pop();
+    const parentSlug = getCrateRecordId(parentRelease);
     let trackItemEl = null;
     if (currentDetailSlug === parentSlug) {
       const trackItems = document.querySelectorAll('.track-item');
@@ -4232,7 +4402,7 @@ function rebuildUserCrateRecords() {
   });
   
   localItems.forEach((slug, i) => {
-    const item = masterCatalog.find(c => c.page_url.split('/').pop() === slug);
+    const item = findMasterCatalogItem(slug);
     if (!item) return;
     
     const frontMaterial = new THREE.MeshStandardMaterial({
@@ -4294,7 +4464,7 @@ function rebuildUserCrateRecords() {
 
 function triggerVinylFlyAnimation(slug, onComplete) {
   // Find record in primary catalog listing
-  const mainRecordIdx = catalog.findIndex(c => c.page_url.split('/').pop() === slug);
+  const mainRecordIdx = catalog.findIndex(c => getCrateRecordId(c) === slug);
   if (mainRecordIdx === -1 || !userCrateGroup) return false;
   const activeRecord = recordsData[mainRecordIdx];
   if (!activeRecord) return false;

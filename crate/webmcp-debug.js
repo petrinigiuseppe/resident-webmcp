@@ -9,7 +9,7 @@
  * routine transport or UI telemetry.
  */
 
-export const WEBMCP_BUILD_VERSION = '20260829-webmcp-m36';
+export const WEBMCP_BUILD_VERSION = '20260829-webmcp-m38';
 
 const DIAGNOSTICS_SCHEMA = 'sephmartin.webmcp.diagnostics.v1';
 const STORAGE_KEY = 'seph.webmcp.diagnostics.v1';
@@ -20,6 +20,7 @@ const UI_EVENTS = [
   'seph-agent-state',
   'seph-agent-sound',
   'seph-agent-focus',
+  'seph-theme-change',
   'seph-player-state',
   'seph-webmcp-ready',
   'seph-webmcp-error',
@@ -120,6 +121,8 @@ function getSnapshot() {
       agent_mode: root.dataset.agentMode || null,
       agent_operation: root.dataset.agentOperation || null,
       agent_sound: root.dataset.agentSound || null,
+      theme: root.dataset.theme || null,
+      theme_preference: root.dataset.themePreference || null,
       site_audio: root.dataset.siteAudio || null,
       player_audio: root.dataset.playerAudio || null,
       agent_debug: root.dataset.agentDebug || null,

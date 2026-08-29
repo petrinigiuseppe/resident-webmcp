@@ -224,10 +224,25 @@ function matchesTerm(sourceText, term) {
   return new RegExp('(^|[^a-z0-9])' + pattern + '(?=$|[^a-z0-9])').test(source);
 }
 
-function getRecordId(item) {
+function getLegacyPageSlug(item) {
   const pageUrl = String(item?.page_url || '');
   const pageSlug = pageUrl.split('/').filter(Boolean).pop();
-  return String(item?.record_id || pageSlug || item?.slug || '').trim();
+  return String(pageSlug || item?.slug || '').trim();
+}
+
+function getRecordId(item) {
+  const explicitId = String(item?.record_id || '').trim();
+  if (explicitId) return explicitId;
+
+  const pageSlug = getLegacyPageSlug(item);
+  if (!pageSlug) return String(item?.slug || '').trim();
+
+  // Album and vinyl merch can intentionally share a Bandcamp page URL. Keep
+  // the legacy album ID stable, while giving the merch listing its own local
+  // identity so crate state and WebMCP focus never collapse the two records.
+  return String(item?.type || '').toLowerCase() === 'merch'
+    ? `${pageSlug}--merch`
+    : pageSlug;
 }
 
 function getDeclaredTagSource(item) {

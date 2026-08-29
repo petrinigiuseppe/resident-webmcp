@@ -15,8 +15,8 @@ import {
   getAgentStatusText,
   isPassiveAgentStatus,
   resolveAgentOperation
-} from './agent-state.js?v=20260829-webmcp-m36';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260829-webmcp-m36';
+} from './agent-state.js?v=20260829-webmcp-m38';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260829-webmcp-m38';
 
 const MAX_TOOL_OUTPUT_RECORDS = 12;
 const ACTIVE_STATES = new Set(['loading', 'active', 'busy', 'standby']);
@@ -937,7 +937,9 @@ function installDebugPanel(api) {
 }
 
 function getCatalog() {
-  return getCrateApi()?.getMasterCatalog?.() || [];
+  const api = getCrateApi();
+  return api?.getDigitalCatalog?.()
+    || (api?.getMasterCatalog?.() || []).filter(item => String(item?.type || '').toLowerCase() !== 'merch');
 }
 
 function getItemSummary(item) {
@@ -1339,6 +1341,27 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   });
 
   await registerTool(modelContext, {
+    name: 'set_theme',
+    title: 'Set the site color theme',
+    description: 'Sets the site presentation theme to light, dark, or system. The preference is persisted locally and changes only the visual theme; it does not affect playback, the crate, or checkout.',
+    inputSchema: {
+      type: 'object',
+      properties: { theme: { type: 'string', enum: ['light', 'dark', 'system'] } },
+      required: ['theme'],
+      additionalProperties: false
+    },
+    annotations: uiMutation,
+    async execute(input = {}) {
+      const theme = trimText(input.theme, 20).toLowerCase();
+      if (!['light', 'dark', 'system'].includes(theme)) {
+        return resultError('INVALID_THEME', 'theme must be light, dark, or system.');
+      }
+      return withAgentActivity(`Switching to ${theme} theme`, async () => api.setTheme?.(theme)
+        || resultError('THEME_UNAVAILABLE', 'The site theme controls are not available.'));
+    }
+  });
+
+  await registerTool(modelContext, {
     name: 'manage_crate',
     title: 'Add or remove a record from My Crate',
     description: 'Changes the local My Crate using the existing Add to Crate control. This is reversible, does not call checkout, and does not purchase anything.',
@@ -1361,6 +1384,18 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
         if (!item) return resultError('RECORD_NOT_FOUND', 'The requested record is not in the loaded catalog.');
         return api.manageCrate(getRecordId(item), input.action);
       });
+    }
+  });
+
+  await registerTool(modelContext, {
+    name: 'return_to_main_crate',
+    title: 'Return to the main Shop crate',
+    description: 'Returns the visible display to the main Shop crate (not My Crate), closes the release detail drawer, clears transient search, and preserves the preview player. It does not change crate contents or start checkout.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    annotations: uiMutation,
+    async execute() {
+      return withAgentActivity('Returning to the main crate', async () => api.showMainCrate?.()
+        || resultError('CRATE_VIEW_UNAVAILABLE', 'The main crate view is not available.'));
     }
   });
 
@@ -1398,7 +1433,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   toolRegistrationComplete = true;
   document.documentElement.dataset.webmcp = 'ready';
   dispatch('seph-webmcp-ready', {
-    tool_count: 15,
+    tool_count: 17,
     model_context_source: modelContextSource,
     tools: [
       'start_curator_session',
@@ -1413,7 +1448,9 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
       'pause_track',
       'seek_track',
       'set_audio_mute',
+      'set_theme',
       'manage_crate',
+      'return_to_main_crate',
       'prepare_checkout',
       'end_curator_session'
     ]
