@@ -15,8 +15,8 @@ import {
   getAgentStatusText,
   isPassiveAgentStatus,
   resolveAgentOperation
-} from './agent-state.js?v=20260829-webmcp-m35';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260829-webmcp-m35';
+} from './agent-state.js?v=20260829-webmcp-m36';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260829-webmcp-m36';
 
 const MAX_TOOL_OUTPUT_RECORDS = 12;
 const ACTIVE_STATES = new Set(['loading', 'active', 'busy', 'standby']);
@@ -1252,7 +1252,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   await registerTool(modelContext, {
     name: 'play_track',
     title: 'Play a catalog preview',
-    description: 'Loads and plays one catalog track preview in the visible player. Use inspect_record first to obtain track_id and record_id; omit track_id only to resume the already loaded track. Browser autoplay policy may require a user gesture. This never purchases anything.',
+    description: 'Loads and plays one catalog track preview in the visible player. Use inspect_record first to obtain track_id and record_id; omit track_id only to resume the already loaded track. Browser autoplay policy may require a user gesture; if blocked, relay the returned user_message and next_step instead of claiming playback started. This never purchases anything.',
     inputSchema: {
       type: 'object',
       properties: {

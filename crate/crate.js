@@ -1,6 +1,6 @@
 /* --- 3D Vinyl Crate digging (Beta) crate.js --- */
 import * as THREE from './vendor/three.module.js';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260829-webmcp-m35';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260829-webmcp-m36';
 
 diagnostics.record('runtime', 'crate_module_loaded', { build_version: WEBMCP_BUILD_VERSION });
 
@@ -132,6 +132,8 @@ let currentPlayingTrackId = null;
 let currentPlayingReleaseId = null;
 let currentPlayingTrack = null;
 let currentPlayingTrackItem = null;
+let playerHomeParent = null;
+let playerHomeNextSibling = null;
 let playerError = null;
 let siteAudioEnabled = true;
 let uiAudioContext = null;
@@ -349,7 +351,7 @@ function compareCatalogItems(a, b) {
   return dateB - dateA;
 }
 
-function filterAndSortCatalog(skipApply = false, { preservePlayer = false } = {}) {
+function filterAndSortCatalog(skipApply = false, { preservePlayer = true } = {}) {
   const localItems = readLocalCrateItems();
   let workingList = masterCatalog.filter(item => {
     return !localItems.includes(getCrateRecordId(item));
@@ -741,7 +743,7 @@ function publishCrateApi() {
   return api;
 }
 
-function applyCatalogUpdates({ preservePlayer = false } = {}) {
+function applyCatalogUpdates({ preservePlayer = true } = {}) {
   const count = catalog.length;
 
   recordsData.forEach((rec, idx) => {
@@ -1727,6 +1729,7 @@ function initUI() {
             }),
             keepalive: true
           }).catch(() => {});
+          pauseAudio();
           window.location.href = data.url;
         } else {
           throw new Error("Invalid response payload");
@@ -2798,7 +2801,7 @@ function selectRecord(index) {
 }
 
 // Deselect / Put record back in crate
-function deselectRecord({ preservePlayer = false } = {}) {
+function deselectRecord({ preservePlayer = true } = {}) {
   isSelected = false;
   userIsSelected = false;
   updateRecordHeights();
@@ -2806,7 +2809,8 @@ function deselectRecord({ preservePlayer = false } = {}) {
   const panel = document.getElementById('details-panel');
   panel.classList.add('hidden');
   panel.classList.remove('show-collapsed', 'show-expanded');
-  if (!preservePlayer) pauseAudio();
+  if (preservePlayer) floatPlayerInViewport();
+  else pauseAudio();
   resetInactivityTimer();
 }
 
@@ -2821,6 +2825,8 @@ function showRecordDetails(index) {
     ? masterCatalog.find(c => c.page_url.split('/').pop() === userRecordsData[index].slug)
     : catalog[index];
   if (!item) return;
+
+  restorePlayerToPanel();
 
   // Set elements
   document.getElementById('detail-cover').src = item.image;
@@ -3079,6 +3085,38 @@ function findReleaseByTrackId(trackId) {
   return list.find(release => release.tracks && release.tracks.some(t => t.id === trackId)) || null;
 }
 
+function rememberPlayerHome() {
+  const player = document.getElementById('custom-player');
+  if (!player || !player.parentNode) return null;
+  if (!playerHomeParent) {
+    playerHomeParent = player.parentNode;
+    playerHomeNextSibling = player.nextSibling;
+  }
+  return player;
+}
+
+function restorePlayerToPanel() {
+  const player = rememberPlayerHome();
+  if (!player || !playerHomeParent) return;
+  if (player.parentNode !== playerHomeParent) {
+    if (playerHomeNextSibling?.parentNode === playerHomeParent) {
+      playerHomeParent.insertBefore(player, playerHomeNextSibling);
+    } else {
+      playerHomeParent.appendChild(player);
+    }
+  }
+  player.classList.remove('is-floating');
+}
+
+function floatPlayerInViewport() {
+  const player = rememberPlayerHome();
+  const host = document.getElementById('global-player-host');
+  if (!player || !host || !currentPlayingTrackId || !(audio.currentSrc || audio.src)) return;
+  if (player.classList.contains('hidden')) return;
+  if (player.parentNode !== host) host.appendChild(player);
+  player.classList.add('is-floating');
+}
+
 function getPendingPlaybackSummary() {
   return pendingPlayback ? { ...pendingPlayback } : null;
 }
@@ -3324,7 +3362,13 @@ function startAudioPlayback() {
     emitPlayerState('playback_failed');
     return playerErrorResult(playerError.code, playerError.message, {
       requires_user_gesture: blocked,
-      pending_playback: getPendingPlaybackSummary()
+      pending_playback: getPendingPlaybackSummary(),
+      user_message: blocked
+        ? 'Audio cannot start until you tap or click the page once.'
+        : null,
+      next_step: blocked
+        ? 'Tap or click the page, then retry the preview or press Play.'
+        : null
     });
   };
 

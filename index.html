@@ -170,7 +170,7 @@
     .fallback-card-btn.primary-btn { border-color: #03ff00; color: #03ff00; }
   </style>
   <!-- Stylesheets -->
-  <link id="crate-stylesheet" rel="stylesheet" href="/crate/style.css?v=20260829-webmcp-m35">
+  <link id="crate-stylesheet" rel="stylesheet" href="/crate/style.css?v=20260829-webmcp-m36">
   <script>
     (function () {
       var root = document.documentElement;
@@ -211,7 +211,7 @@
           recoveryAttempted = true;
           recoveryTimer = window.setTimeout(function () {
             if (confirmStyles()) return;
-          stylesheet.href = '/crate/style.css?v=20260829-webmcp-m35&recovery=' + Date.now();
+          stylesheet.href = '/crate/style.css?v=20260829-webmcp-m36&recovery=' + Date.now();
           }, 80);
         }
 
@@ -493,6 +493,7 @@
         </div>
       </div>
     </aside>
+    <div id="global-player-host" class="global-player-host" aria-live="polite"></div>
   </div>
 
   <!-- Sticky Note Overlay Modal -->
@@ -614,8 +615,8 @@
   </div>
 
   <!-- Three.js Local Script Loading -->
-  <script type="module" src="/crate/crate.js?v=20260829-webmcp-m35"></script>
-  <script type="module" src="/crate/webmcp.js?v=20260829-webmcp-m35"></script>
+  <script type="module" src="/crate/crate.js?v=20260829-webmcp-m36"></script>
+  <script type="module" src="/crate/webmcp.js?v=20260829-webmcp-m36"></script>
   <script>
     // Inline failsafe script for loading stuck / script crash
     setTimeout(function() {

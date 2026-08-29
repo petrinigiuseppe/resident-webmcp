@@ -1422,6 +1422,24 @@ html[data-agent-mode="returning"] .mobile-agent-hint {
   display: none;
 }
 
+/* The player is moved as one DOM node into this viewport host when the
+   details panel closes. That keeps the audio element, controls and state
+   authoritative while allowing playback to remain visible. */
+.global-player-host {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 1150;
+  width: min(360px, calc(100vw - 48px));
+  pointer-events: none;
+}
+
+.global-player-host .custom-player.is-floating {
+  width: 100%;
+  margin: 0;
+  pointer-events: auto;
+}
+
 .player-controls {
   display: flex;
   gap: 12px;
@@ -1803,6 +1821,13 @@ html[data-agent-mode="returning"] .mobile-agent-hint {
     overflow-y: auto;
     resize: none;
     overscroll-behavior: contain;
+  }
+
+  .global-player-host {
+    right: 16px;
+    bottom: 84px;
+    left: 16px;
+    width: auto;
   }
 
 }
