@@ -1,6 +1,6 @@
 /* --- 3D Vinyl Crate digging (Beta) crate.js --- */
 import * as THREE from './vendor/three.module.js';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260829-webmcp-m38';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260829-webmcp-m39';
 
 diagnostics.record('runtime', 'crate_module_loaded', { build_version: WEBMCP_BUILD_VERSION });
 
@@ -349,6 +349,12 @@ function playNavigationTickNow(direction, agent, context) {
   gain.connect(context.destination);
   source.start(now);
   source.stop(now + duration + 0.01);
+  diagnostics.record('audio', 'navigation_tick_played', {
+    direction: direction > 0 ? 1 : -1,
+    agent: Boolean(agent),
+    duration_ms: Math.round(duration * 1000),
+    context_state: context.state
+  });
 }
 
 function flushPendingNavigationTick(context) {
@@ -360,19 +366,33 @@ function flushPendingNavigationTick(context) {
 }
 
 function playCrateNavigationTick(direction = 1, { agent = false, force = false } = {}) {
-  if (!siteAudioEnabled) return;
+  if (!siteAudioEnabled) {
+    diagnostics.record('audio', 'navigation_tick_skipped', { reason: 'site_audio_disabled' });
+    return;
+  }
   const normalizedDirection = direction > 0 ? 1 : -1;
   const nowWall = performance.now();
   const throttleMs = agent ? 90 : 45;
   if (!force && nowWall - lastNavigationTickAt < throttleMs) return;
 
   const context = getUiAudioContext();
-  if (!context || context.state === 'closed') return;
+  if (!context || context.state === 'closed') {
+    diagnostics.record('audio', 'navigation_tick_unavailable', {
+      reason: !context ? 'audio_context_unavailable' : 'audio_context_closed'
+    });
+    return;
+  }
   if (context.state !== 'running') {
     pendingNavigationTick = {
       direction: normalizedDirection,
       agent: Boolean(agent)
     };
+    diagnostics.record('audio', 'navigation_tick_pending', {
+      direction: normalizedDirection,
+      agent: Boolean(agent),
+      context_state: context.state,
+      unlock: 'trusted_pointer_or_key_gesture'
+    });
     lastNavigationTickAt = nowWall;
     if (typeof context.resume === 'function') {
       context.resume().then(() => flushPendingNavigationTick(context)).catch(() => {});
@@ -388,17 +408,36 @@ function unlockNavigationAudio(event) {
   if (event?.isTrusted !== true || !pendingNavigationTick || !siteAudioEnabled) return;
   const context = getUiAudioContext();
   if (!context || context.state === 'closed') return;
+  diagnostics.record('audio', 'navigation_unlock_attempt', {
+    event_type: event.type,
+    context_state: context.state
+  });
   const resume = context.state === 'running'
     ? Promise.resolve()
     : context.resume?.() || Promise.resolve();
-  resume.then(() => flushPendingNavigationTick(context)).catch(() => {});
+  resume.then(() => {
+    diagnostics.record('audio', 'navigation_unlock_succeeded', {
+      event_type: event.type,
+      context_state: context.state
+    });
+    flushPendingNavigationTick(context);
+  }).catch(error => {
+    diagnostics.record('audio', 'navigation_unlock_failed', {
+      event_type: event.type,
+      context_state: context.state,
+      error
+    });
+  });
 }
 
 function installNavigationAudioUnlock() {
   if (navigationAudioUnlockInstalled) return;
   navigationAudioUnlockInstalled = true;
   const unlock = event => unlockNavigationAudio(event);
-  ['pointerdown', 'keydown', 'touchstart', 'wheel'].forEach(eventName => {
+  // Wheel/scroll is not a portable browser user-activation signal. It may
+  // queue a tick, but only a trusted pointer, touch or keyboard gesture can
+  // resume a suspended AudioContext.
+  ['pointerdown', 'keydown', 'touchstart', 'touchend'].forEach(eventName => {
     window.addEventListener(eventName, unlock, { passive: true });
   });
 }
@@ -1365,10 +1404,43 @@ function initUI() {
     }
   }
 
-  // Keyboard navigation (ignore if typing in search input, except for Escape)
+  // Keyboard navigation and global preview transport. Space is intentionally
+  // handled only on the page surface: native buttons/links and editable
+  // fields keep their browser behavior.
   window.addEventListener('keydown', (e) => {
     hideHelper();
-    if (document.activeElement && document.activeElement.tagName === 'INPUT') {
+    const target = e.target?.nodeType === 1 ? e.target : document.activeElement;
+    const activeElement = document.activeElement;
+    const isEditableTarget = element => Boolean(
+      element?.isContentEditable
+      || element?.closest?.('input, textarea, select, [contenteditable]')
+    );
+    const isNativeControl = element => Boolean(
+      element?.closest?.('button, a, [role="button"]')
+    );
+    const editable = isEditableTarget(target) || isEditableTarget(activeElement);
+    const nativeControl = isNativeControl(target) || isNativeControl(activeElement);
+    const isSpace = e.code === 'Space' || e.key === ' ';
+
+    if (isSpace) {
+      if (editable || nativeControl) return;
+      e.preventDefault();
+      if (e.repeat) return;
+      diagnostics.record('input', 'space_transport', {
+        action: audio.paused ? 'play' : 'pause',
+        pending_playback: Boolean(pendingPlayback),
+        track_id: currentPlayingTrackId,
+        release_record_id: currentPlayingReleaseId
+      }, { snapshot: true });
+      if (pendingPlayback) {
+        resumePendingPlayback(e);
+      } else {
+        toggleAudioPlayback('keyboard_space');
+      }
+      return;
+    }
+
+    if (editable) {
       if (e.key === 'Escape') {
         collapseSearch();
       }
@@ -1393,12 +1465,6 @@ function initUI() {
         } else {
           deselectRecord();
         }
-      }
-    } else if (e.key === ' ') {
-      const detailsOpen = !document.getElementById('details-panel').classList.contains('hidden');
-      if (detailsOpen) {
-        e.preventDefault();
-        toggleAudioPlayback();
       }
     }
   });
@@ -1459,7 +1525,7 @@ function initUI() {
 
   // Custom Audio Player Listeners
   const playPauseBtn = document.getElementById('player-play-btn');
-  if (playPauseBtn) playPauseBtn.addEventListener('click', toggleAudioPlayback);
+  if (playPauseBtn) playPauseBtn.addEventListener('click', () => toggleAudioPlayback('player_button'));
   installPendingPlaybackGesture();
 
   const handlePlayerReleaseFocus = (e) => {
@@ -3315,12 +3381,22 @@ function setPendingPlayback() {
     reason: 'user_gesture_required'
   };
   syncPendingPlaybackState();
+  diagnostics.record('audio', 'preview_playback_pending', {
+    track_id: currentPlayingTrackId,
+    release_record_id: currentPlayingReleaseId,
+    reason: 'user_gesture_required'
+  }, { snapshot: true });
 }
 
 function clearPendingPlayback() {
   if (!pendingPlayback) return;
+  const previous = pendingPlayback;
   pendingPlayback = null;
   syncPendingPlaybackState();
+  diagnostics.record('audio', 'preview_playback_pending_cleared', {
+    track_id: previous.track_id,
+    release_record_id: previous.release_record_id
+  });
 }
 
 function isPendingPlaybackGestureExcluded(event) {
@@ -3505,6 +3581,13 @@ function startAudioPlayback() {
     return Promise.resolve(playerErrorResult('NO_TRACK_LOADED', 'No track is loaded in the player.'));
   }
 
+  diagnostics.record('audio', 'preview_play_attempt', {
+    track_id: requestedTrackId,
+    release_record_id: currentPlayingReleaseId,
+    ready_state: audio.readyState,
+    paused: audio.paused
+  });
+
   const isCurrentRequest = () => requestToken === playbackRequestToken
     && requestedTrackId === currentPlayingTrackId;
 
@@ -3530,6 +3613,12 @@ function startAudioPlayback() {
     setPlayerUiPlaying(false);
     updateTrackListIcons();
     emitPlayerState('playback_failed');
+    diagnostics.record('audio', 'preview_play_failed', {
+      track_id: requestedTrackId,
+      release_record_id: currentPlayingReleaseId,
+      code: playerError.code,
+      error
+    }, { snapshot: true });
     return playerErrorResult(playerError.code, playerError.message, {
       requires_user_gesture: blocked,
       pending_playback: getPendingPlaybackSummary(),
@@ -3548,6 +3637,10 @@ function startAudioPlayback() {
       if (!isCurrentRequest()) return supersededPlaybackResult();
       clearPendingPlayback();
       setPlayerUiPlaying(true);
+      diagnostics.record('audio', 'preview_play_started', {
+        track_id: requestedTrackId,
+        release_record_id: currentPlayingReleaseId
+      });
       updateTrackListIcons();
       return { ok: true, ...emitPlayerState('playback_started') };
     })
@@ -3704,7 +3797,14 @@ function playTrack(track, trackItemElement, { toggleIfCurrent = true, recordId =
   return startAudioPlayback();
 }
 
-function toggleAudioPlayback() {
+function toggleAudioPlayback(source = 'player_control') {
+  diagnostics.record('audio', 'preview_toggle', {
+    source,
+    action: audio.paused ? 'play' : 'pause',
+    track_id: currentPlayingTrackId,
+    release_record_id: currentPlayingReleaseId,
+    pending_playback: Boolean(pendingPlayback)
+  }, { snapshot: true });
   if (audio.paused) {
     return startAudioPlayback();
   } else {

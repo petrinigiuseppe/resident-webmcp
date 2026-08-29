@@ -369,6 +369,10 @@
     color: #8a8a8f;
   }
 
+  .agent-debug-log-meta {
+    color: #8a8a8f;
+  }
+
   #canvas-container {
     --agent-frame-color: rgba(23, 107, 42, 0.66);
   }

@@ -15,8 +15,8 @@ import {
   getAgentStatusText,
   isPassiveAgentStatus,
   resolveAgentOperation
-} from './agent-state.js?v=20260829-webmcp-m38';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260829-webmcp-m38';
+} from './agent-state.js?v=20260829-webmcp-m39';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260829-webmcp-m39';
 
 const MAX_TOOL_OUTPUT_RECORDS = 12;
 const ACTIVE_STATES = new Set(['loading', 'active', 'busy', 'standby']);
@@ -869,6 +869,13 @@ function installFloatingSurfaceViewportGuard() {
 }
 
 function updateDebugPanel() {
+  const logCount = document.getElementById('agent-debug-log-count');
+  const logStats = diagnostics.getStats?.();
+  if (logCount && logStats) {
+    const count = Number(logStats.event_count) || 0;
+    logCount.textContent = `${count} ${count === 1 ? 'event' : 'events'}`;
+  }
+
   const status = document.getElementById('agent-debug-status');
   if (!status) return;
   const currentMode = document.documentElement.dataset.agentMode || agentState;
@@ -887,6 +894,7 @@ function installDebugPanel(api) {
   const panel = document.getElementById('agent-debug-panel');
   const close = document.getElementById('agent-debug-close');
   const download = document.getElementById('agent-debug-download');
+  const downloadStatus = document.getElementById('agent-debug-log-status');
   const status = document.getElementById('agent-debug-status');
   const actions = [...document.querySelectorAll('[data-agent-debug-action]')];
   if (!trigger || !panel || !close || !status || actions.length === 0) return;
@@ -909,11 +917,21 @@ function installDebugPanel(api) {
     download.addEventListener('click', event => {
       event.preventDefault();
       const result = diagnostics.download();
+      if (downloadStatus) {
+        downloadStatus.textContent = result.ok
+          ? `saved ${result.event_count} events`
+          : 'download failed';
+        window.setTimeout(() => {
+          downloadStatus.textContent = 'browser log';
+        }, 2400);
+      }
       if (!result.ok) status.textContent = 'Log download failed';
     });
   }
   window.addEventListener('seph-agent-state', updateDebugPanel);
   window.addEventListener('seph-agent-focus', updateDebugPanel);
+  window.addEventListener('seph-diagnostics-event', updateDebugPanel);
+  window.addEventListener('seph-diagnostics-cleared', updateDebugPanel);
 
   actions.forEach(button => {
     button.addEventListener('click', () => {

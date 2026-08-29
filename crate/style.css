@@ -650,6 +650,18 @@ html[data-agent-intro="active"] .agent-mode-intro {
   grid-column: 1 / -1;
 }
 
+.agent-debug-log-meta {
+  display: flex;
+  grid-column: 1 / -1;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 1px 2px 0;
+  color: var(--text-dim);
+  font-size: 0.44rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .agent-debug-action:disabled {
   cursor: wait;
   opacity: 0.45;

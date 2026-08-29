@@ -9,13 +9,14 @@
  * routine transport or UI telemetry.
  */
 
-export const WEBMCP_BUILD_VERSION = '20260829-webmcp-m38';
+export const WEBMCP_BUILD_VERSION = '20260829-webmcp-m39';
 
 const DIAGNOSTICS_SCHEMA = 'sephmartin.webmcp.diagnostics.v1';
 const STORAGE_KEY = 'seph.webmcp.diagnostics.v1';
 const MAX_EVENTS = 1200;
 const MAX_PERSISTED_EVENTS = 240;
 const MAX_STORAGE_BYTES = 180 * 1024;
+const URL_VALUE_KEY = /(?:^|_)(?:url|href|source)$/i;
 const UI_EVENTS = [
   'seph-agent-state',
   'seph-agent-sound',
@@ -57,6 +58,20 @@ function truncate(value, max = 640) {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
+function sanitizeUrl(value) {
+  const text = String(value ?? '');
+  if (!/^https?:\/\//i.test(text) && !text.startsWith('/')) return truncate(text);
+  try {
+    const base = hasWindow ? window.location.origin : 'https://sephmartin.com';
+    const parsed = new URL(text, base);
+    // Preview and proxy URLs can contain signed query parameters. Keep the
+    // useful route for debugging, never the credential-like query string.
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return truncate(text.split(/[?#]/, 1)[0]);
+  }
+}
+
 function sanitize(value, depth = 0) {
   if (value === null || value === undefined) return value ?? null;
   if (typeof value === 'string') return truncate(value);
@@ -77,7 +92,9 @@ function sanitize(value, depth = 0) {
   if (typeof value === 'object') {
     const result = {};
     Object.keys(value).slice(0, 48).forEach(key => {
-      result[key] = SENSITIVE_KEY.test(key) ? '[redacted]' : sanitize(value[key], depth + 1);
+      result[key] = SENSITIVE_KEY.test(key)
+        ? '[redacted]'
+        : URL_VALUE_KEY.test(key) ? sanitizeUrl(value[key]) : sanitize(value[key], depth + 1);
     });
     return result;
   }
@@ -211,6 +228,20 @@ function record(kind, name, detail = {}, { snapshot = false } = {}) {
     events.push(item);
     if (events.length > MAX_EVENTS) events.splice(0, events.length - MAX_EVENTS);
     schedulePersist();
+    if (hasWindow && typeof CustomEvent === 'function') {
+      try {
+        window.dispatchEvent(new CustomEvent('seph-diagnostics-event', {
+          detail: {
+            sequence: item.sequence,
+            event_count: events.length,
+            kind: item.kind,
+            name: item.name
+          }
+        }));
+      } catch {
+        // Diagnostics must never interrupt the page when event notification is unavailable.
+      }
+    }
     return item;
   } catch {
     return null;
@@ -298,6 +329,19 @@ function getExport() {
   };
 }
 
+function getStats() {
+  return {
+    schema: DIAGNOSTICS_SCHEMA,
+    build_version: WEBMCP_BUILD_VERSION,
+    page_session_id: pageSessionId,
+    curator_session_id: curatorSessionId,
+    event_count: events.length,
+    session_count: sessions.length,
+    tool_count: Object.keys(toolStats).length,
+    storage_available: storageAvailable
+  };
+}
+
 function download() {
   record('diagnostics', 'download_requested', { event_count: events.length });
   if (!hasWindow || !hasDocument || typeof Blob === 'undefined' || !window.URL?.createObjectURL) {
@@ -336,6 +380,15 @@ function clear() {
   } catch {
     // Ignore storage cleanup failures; the in-memory log is still cleared.
   }
+  if (hasWindow && typeof CustomEvent === 'function') {
+    try {
+      window.dispatchEvent(new CustomEvent('seph-diagnostics-cleared', {
+        detail: { event_count: 0, build_version: WEBMCP_BUILD_VERSION }
+      }));
+    } catch {
+      // Ignore notification failures; the log is already cleared.
+    }
+  }
   return { ok: true };
 }
 
@@ -363,6 +416,15 @@ if (hasWindow) {
   window.addEventListener('unhandledrejection', event => {
     record('runtime', 'unhandled_rejection', { reason: event?.reason || null }, { snapshot: true });
   });
+  window.addEventListener('pagehide', event => {
+    record('page', 'pagehide', { persisted: Boolean(event?.persisted) }, { snapshot: true });
+  }, { passive: true });
+  window.addEventListener('online', () => {
+    record('network', 'online', {}, { snapshot: true });
+  }, { passive: true });
+  window.addEventListener('offline', () => {
+    record('network', 'offline', {}, { snapshot: true });
+  }, { passive: true });
   document.addEventListener('visibilitychange', () => {
     record('ui', 'visibilitychange', { visibility: document.visibilityState }, { snapshot: true });
   }, { passive: true });
@@ -377,6 +439,7 @@ export const diagnostics = {
   failTool,
   setSession,
   getSnapshot,
+  getStats,
   getExport,
   download,
   clear
