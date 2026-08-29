@@ -507,6 +507,10 @@ function buildMusicDNA(item) {
       tag_source: getDeclaredTagSource(item),
       description_present: Boolean(String(item?.description || '').trim())
     },
+    catalog_classification: {
+      release_category: item?.release_category || 'unclassified',
+      release_category_label: item?.release_category_label || 'Needs classification'
+    },
     metadata_profile: buildMetadataProfile(signals),
     inferred_from_metadata: {
       signals,
@@ -738,6 +742,7 @@ function buildCollectionStats(items) {
   const tagFrequency = {};
   const signalFrequency = {};
   const dimensionFrequency = {};
+  const releaseCategoryFrequency = {};
   let recordsWithTags = 0;
   let recordsWithDescriptions = 0;
   let recordsWithPreviews = 0;
@@ -747,6 +752,8 @@ function buildCollectionStats(items) {
   );
 
   records.forEach(item => {
+    const releaseCategory = String(item?.release_category || 'unclassified').trim().toLowerCase();
+    releaseCategoryFrequency[releaseCategory] = (releaseCategoryFrequency[releaseCategory] || 0) + 1;
     const tags = getDeclaredTags(item);
     if (tags.length > 0) recordsWithTags += 1;
     tags.forEach(tag => {
@@ -780,6 +787,8 @@ function buildCollectionStats(items) {
       'artist',
       'description',
       'tags',
+      'release_category',
+      'release_category_label',
       'metadata_profile',
       'tracks',
       'duration_seconds',
@@ -788,6 +797,9 @@ function buildCollectionStats(items) {
     ],
     available_dimensions: [...AVAILABLE_METADATA_DIMENSIONS],
     missing_fields: [...MISSING_FIELDS],
+    release_category_frequency: Object.fromEntries(
+      Object.entries(releaseCategoryFrequency).sort(([, a], [, b]) => b - a)
+    ),
     metadata_coverage: {
       records_with_tags: recordsWithTags,
       records_with_descriptions: recordsWithDescriptions,

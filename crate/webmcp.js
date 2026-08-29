@@ -15,8 +15,8 @@ import {
   getAgentStatusText,
   isPassiveAgentStatus,
   resolveAgentOperation
-} from './agent-state.js?v=20260829-webmcp-m40';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260829-webmcp-m40';
+} from './agent-state.js?v=20260829-webmcp-m41';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260829-webmcp-m41';
 
 const MAX_TOOL_OUTPUT_RECORDS = 12;
 const ACTIVE_STATES = new Set(['loading', 'active', 'busy', 'standby']);
@@ -992,6 +992,9 @@ function getItemSummary(item) {
     tags: Array.isArray(item.bandcamp_tags)
       ? item.bandcamp_tags
       : Array.isArray(item.tags) ? item.tags : [],
+    release_category: item.release_category || 'unclassified',
+    release_category_label: item.release_category_label || 'Needs classification',
+    latest_priority: Number.isFinite(Number(item.latest_priority)) ? Number(item.latest_priority) : 0,
     release_date: item.release_date || null,
     track_count: Array.isArray(item.tracks) ? item.tracks.length : 0
   };
@@ -1014,7 +1017,12 @@ function searchCatalog(query, maxResults = MAX_TOOL_OUTPUT_RECORDS) {
     .filter(item => {
       const title = String(item.title || '').toLowerCase();
       const artist = String(item.artist || '').toLowerCase();
-      return title.includes(normalized) || artist.includes(normalized);
+      const category = String(item.release_category || '').toLowerCase();
+      const categoryLabel = String(item.release_category_label || '').toLowerCase();
+      return title.includes(normalized)
+        || artist.includes(normalized)
+        || category.includes(normalized)
+        || categoryLabel.includes(normalized);
     })
     .slice(0, Math.max(1, Math.min(24, Number(maxResults) || MAX_TOOL_OUTPUT_RECORDS)))
     .map(getItemSummary);
@@ -1135,7 +1143,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   await registerTool(modelContext, {
     name: 'sort_catalog',
     title: 'Sort crate by latest, most popular or oldest',
-    description: 'Changes the visible crate ordering without text search. Use sort=popular when the user asks for most popular or best-selling releases, and sort=oldest when the user asks for the oldest or earliest releases. Use sort=latest to restore newest-first order.',
+    description: 'Changes the visible crate ordering without text search. Use sort=popular when the user asks for most popular or best-selling releases, and sort=oldest when the user asks for the oldest or earliest releases. Use sort=latest to restore the curated latest order: Ocean\'s Groove is intentionally pinned first as the current featured release even though its archival release date is older.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1160,7 +1168,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   await registerTool(modelContext, {
     name: 'search_catalog',
     title: 'Search visible catalog',
-    description: 'Searches the existing crate search surface by release title or artist, updates the visible crate, and opens the first match in the existing Song sidebar. Use dig_by_descriptor for metadata DNA matching.',
+    description: 'Searches the existing crate search surface by release title, artist or curated release category (Original by Seph, Remixes, Edits or Mixed release), updates the visible crate, and opens the first match in the existing Song sidebar. Use dig_by_descriptor for metadata DNA matching.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1256,7 +1264,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   await registerTool(modelContext, {
     name: 'inspect_record',
     title: 'Inspect Song DNA record',
-    description: 'Opens a record in the existing detail panel and returns its catalog metadata plus conservative Song DNA Lite provenance and missing dimensions. Read-only with visible focus.',
+    description: 'Opens a record in the existing detail panel and returns its catalog metadata, including the Original by Seph / Remixes / Edits classification, plus conservative Song DNA Lite provenance and missing dimensions. Read-only with visible focus.',
     inputSchema: {
       type: 'object',
       properties: { record_id: { type: 'string', minLength: 1, maxLength: 160 } },

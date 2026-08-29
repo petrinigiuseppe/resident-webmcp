@@ -1,6 +1,6 @@
 /* --- 3D Vinyl Crate digging (Beta) crate.js --- */
 import * as THREE from './vendor/three.module.js';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260829-webmcp-m40';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260829-webmcp-m41';
 
 diagnostics.record('runtime', 'crate_module_loaded', { build_version: WEBMCP_BUILD_VERSION });
 
@@ -38,6 +38,18 @@ const FALLBACK_CATALOG = [
 // App State
 let catalog = [];
 let masterCatalog = [];
+const DEFAULT_CATALOG_CATEGORY_LABELS = Object.freeze({
+  original: 'Original by Seph',
+  remixes: 'Remixes',
+  edits: 'Edits',
+  mixed: 'Mixed release',
+  unclassified: 'Needs classification'
+});
+let catalogCuration = {
+  schema_version: 'catalog-curation.v1',
+  categories: { ...DEFAULT_CATALOG_CATEGORY_LABELS },
+  releases: {}
+};
 let bestSellersMap = new Map();
 let textureCache = new Map();
 let currentFilter = 'latest';
@@ -447,6 +459,53 @@ function getCatalogProductSlug(item) {
   return pageSlug;
 }
 
+function getCatalogCurationEntry(item) {
+  const slug = getCatalogProductSlug(item);
+  return slug ? catalogCuration?.releases?.[slug] || null : null;
+}
+
+function applyCatalogCuration(item) {
+  if (!item || typeof item !== 'object') return item;
+  const entry = getCatalogCurationEntry(item);
+  const category = String(entry?.release_category || item.release_category || 'unclassified').trim().toLowerCase();
+  const categoryLabel = String(
+    entry?.release_category_label
+      || item.release_category_label
+      || catalogCuration?.categories?.[category]?.label
+      || DEFAULT_CATALOG_CATEGORY_LABELS[category]
+      || category
+  ).trim();
+  return {
+    ...item,
+    ...(entry || {}),
+    release_category: category,
+    release_category_label: categoryLabel
+  };
+}
+
+async function loadCatalogCuration() {
+  try {
+    const response = await fetch('/shop/catalog-curation.json', { cache: 'no-store' });
+    if (!response.ok) throw new Error(`Curation HTTP ${response.status}`);
+    const parsed = await response.json();
+    if (!parsed || typeof parsed !== 'object' || !parsed.releases || typeof parsed.releases !== 'object') {
+      throw new Error('Invalid catalog curation payload');
+    }
+    catalogCuration = {
+      ...parsed,
+      categories: { ...DEFAULT_CATALOG_CATEGORY_LABELS, ...(parsed.categories || {}) },
+      releases: parsed.releases
+    };
+    diagnostics.record('catalog', 'curation_loaded', {
+      schema_version: catalogCuration.schema_version,
+      release_count: Object.keys(catalogCuration.releases).length
+    });
+  } catch (error) {
+    diagnostics.record('catalog', 'curation_unavailable', { message: String(error?.message || error) });
+  }
+  return catalogCuration;
+}
+
 function getCatalogPopularity(item) {
   const aliases = [
     getCatalogProductSlug(item),
@@ -454,6 +513,11 @@ function getCatalogPopularity(item) {
     String(item?.page_url || '').replace(/^\//, '').replace(/\//g, '-')
   ].map(value => String(value || '').trim()).filter(Boolean);
   return aliases.reduce((highest, alias) => Math.max(highest, Number(bestSellersMap.get(alias) || 0)), 0);
+}
+
+function getCatalogLatestPriority(item) {
+  const value = Number(item?.latest_priority);
+  return Number.isFinite(value) ? value : 0;
 }
 
 function compareCatalogItems(a, b) {
@@ -469,6 +533,12 @@ function compareCatalogItems(a, b) {
     const priorityA = typeof a?.sort_priority === 'number' ? a.sort_priority : 0;
     const priorityB = typeof b?.sort_priority === 'number' ? b.sort_priority : 0;
     if (priorityB !== priorityA) return priorityB - priorityA;
+  }
+
+  if (currentFilter === 'latest') {
+    const latestPriorityA = getCatalogLatestPriority(a);
+    const latestPriorityB = getCatalogLatestPriority(b);
+    if (latestPriorityB !== latestPriorityA) return latestPriorityB - latestPriorityA;
   }
 
   return dateB - dateA;
@@ -599,6 +669,9 @@ function summarizeCrateItem(item) {
     tags: Array.isArray(item.bandcamp_tags)
       ? item.bandcamp_tags
       : Array.isArray(item.tags) ? item.tags : [],
+    release_category: item.release_category || 'unclassified',
+    release_category_label: item.release_category_label || DEFAULT_CATALOG_CATEGORY_LABELS[item.release_category] || 'Needs classification',
+    latest_priority: getCatalogLatestPriority(item),
     release_date: item.release_date || null,
     track_count: Array.isArray(item.tracks) ? item.tracks.length : 0
   };
@@ -904,7 +977,9 @@ function publishCrateApi() {
       return getDigitalCatalog()
         .filter(item => (
           String(item.title || '').toLowerCase().includes(normalized) ||
-          String(item.artist || '').toLowerCase().includes(normalized)
+          String(item.artist || '').toLowerCase().includes(normalized) ||
+          String(item.release_category || '').toLowerCase().includes(normalized) ||
+          String(item.release_category_label || '').toLowerCase().includes(normalized)
         ))
         .slice(0, Math.max(1, Math.min(24, Number(maxResults) || 12)))
         .map(summarizeCrateItem);
@@ -1025,6 +1100,7 @@ function applyCatalogUpdates({ preservePlayer = true } = {}) {
 
 // Load catalog from API or fallback
 async function loadCatalogData() {
+  const curationPromise = loadCatalogCuration();
   // Fetch best sellers data for real-time popularity sorting
   try {
     let bsResponse = await fetch('/data/bandcamp-sales-summary.json');
@@ -1046,18 +1122,21 @@ async function loadCatalogData() {
   try {
     const response = await fetch('/api/catalog');
     if (!response.ok) throw new Error('Network response was not ok');
-    catalog = await response.json();
+    const rawCatalog = await response.json();
+    await curationPromise;
+    catalog = (Array.isArray(rawCatalog) ? rawCatalog : []).map(applyCatalogCuration);
     console.log('Catalog loaded from API:', catalog);
   } catch (error) {
     console.warn('API Catalog fetch failed. Using fallback catalog:', error);
-    catalog = FALLBACK_CATALOG;
+    await curationPromise;
+    catalog = FALLBACK_CATALOG.map(applyCatalogCuration);
   }
 
   // Format/sanitize catalog data
   catalog = catalog.filter(item => item.tracks && item.tracks.length > 0);
 
   if (catalog.length === 0) {
-    catalog = FALLBACK_CATALOG;
+    catalog = FALLBACK_CATALOG.map(applyCatalogCuration);
   }
 
   masterCatalog = [...catalog];
