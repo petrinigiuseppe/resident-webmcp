@@ -15,8 +15,8 @@ import {
   getAgentStatusText,
   isPassiveAgentStatus,
   resolveAgentOperation
-} from './agent-state.js?v=20260829-webmcp-m39';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260829-webmcp-m39';
+} from './agent-state.js?v=20260829-webmcp-m40';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260829-webmcp-m40';
 
 const MAX_TOOL_OUTPUT_RECORDS = 12;
 const ACTIVE_STATES = new Set(['loading', 'active', 'busy', 'standby']);
@@ -27,7 +27,7 @@ const DIG_PREVIEW_MS = 420;
 const DRAG_MARGIN_PX = 12;
 const RETURN_FOCUS_CLEAR_MS = 560;
 const RETURN_TO_HUMAN_MS = 960;
-const HUMAN_OVERRIDE_EXCLUSION_SELECTOR = '#agent-mode-hud, #mobile-agent-hint, #agent-debug-panel, #agent-debug-trigger, #details-panel, [data-agent-debug-action]';
+const HUMAN_OVERRIDE_EXCLUSION_SELECTOR = '#agent-mode-hud, #mobile-agent-hint, #agent-debug-panel, #agent-debug-trigger, #site-diagnostics-download, #details-panel, [data-agent-debug-action]';
 
 let agentState = 'human';
 let agentOperation = 'human';
@@ -869,13 +869,6 @@ function installFloatingSurfaceViewportGuard() {
 }
 
 function updateDebugPanel() {
-  const logCount = document.getElementById('agent-debug-log-count');
-  const logStats = diagnostics.getStats?.();
-  if (logCount && logStats) {
-    const count = Number(logStats.event_count) || 0;
-    logCount.textContent = `${count} ${count === 1 ? 'event' : 'events'}`;
-  }
-
   const status = document.getElementById('agent-debug-status');
   if (!status) return;
   const currentMode = document.documentElement.dataset.agentMode || agentState;
@@ -887,14 +880,56 @@ function updateDebugPanel() {
   status.textContent = getAgentStatusText(currentMode, currentOp);
 }
 
+let diagnosticsStatusTimer = null;
+
+function updateDiagnosticsControl() {
+  const countEl = document.getElementById('site-diagnostics-log-count');
+  const statusEl = document.getElementById('site-diagnostics-log-status');
+  const stats = diagnostics.getStats?.();
+  if (countEl && stats) {
+    const count = Number(stats.event_count) || 0;
+    countEl.textContent = `${count} ${count === 1 ? 'event' : 'events'}`;
+  }
+  if (statusEl && statusEl.dataset.transient !== 'true') {
+    statusEl.textContent = 'browser log';
+  }
+}
+
+function installDiagnosticsDownload() {
+  const download = document.getElementById('site-diagnostics-download');
+  const status = document.getElementById('site-diagnostics-log-status');
+  if (!download || download.dataset.bound === 'true') {
+    updateDiagnosticsControl();
+    return;
+  }
+
+  download.dataset.bound = 'true';
+  download.addEventListener('click', event => {
+    event.preventDefault();
+    const result = diagnostics.download();
+    if (!status) return;
+    if (diagnosticsStatusTimer) window.clearTimeout(diagnosticsStatusTimer);
+    status.dataset.transient = 'true';
+    status.textContent = result.ok
+      ? `saved ${result.event_count} events`
+      : 'download failed';
+    diagnosticsStatusTimer = window.setTimeout(() => {
+      delete status.dataset.transient;
+      status.textContent = 'browser log';
+      diagnosticsStatusTimer = null;
+    }, 2400);
+  });
+  window.addEventListener('seph-diagnostics-event', updateDiagnosticsControl);
+  window.addEventListener('seph-diagnostics-cleared', updateDiagnosticsControl);
+  updateDiagnosticsControl();
+}
+
 function installDebugPanel(api) {
   if (!isDebugModeEnabled()) return;
 
   const trigger = document.getElementById('agent-debug-trigger');
   const panel = document.getElementById('agent-debug-panel');
   const close = document.getElementById('agent-debug-close');
-  const download = document.getElementById('agent-debug-download');
-  const downloadStatus = document.getElementById('agent-debug-log-status');
   const status = document.getElementById('agent-debug-status');
   const actions = [...document.querySelectorAll('[data-agent-debug-action]')];
   if (!trigger || !panel || !close || !status || actions.length === 0) return;
@@ -913,25 +948,8 @@ function installDebugPanel(api) {
 
   trigger.addEventListener('click', () => setOpen(true));
   close.addEventListener('click', () => setOpen(false));
-  if (download) {
-    download.addEventListener('click', event => {
-      event.preventDefault();
-      const result = diagnostics.download();
-      if (downloadStatus) {
-        downloadStatus.textContent = result.ok
-          ? `saved ${result.event_count} events`
-          : 'download failed';
-        window.setTimeout(() => {
-          downloadStatus.textContent = 'browser log';
-        }, 2400);
-      }
-      if (!result.ok) status.textContent = 'Log download failed';
-    });
-  }
   window.addEventListener('seph-agent-state', updateDebugPanel);
   window.addEventListener('seph-agent-focus', updateDebugPanel);
-  window.addEventListener('seph-diagnostics-event', updateDebugPanel);
-  window.addEventListener('seph-diagnostics-cleared', updateDebugPanel);
 
   actions.forEach(button => {
     button.addEventListener('click', () => {
@@ -1034,8 +1052,9 @@ async function registerTool(modelContext, tool) {
       const call = diagnostics.startTool(tool.name, input);
       try {
         const result = await tool.execute(input);
-        diagnostics.finishTool(call, result);
-        return result;
+        const enrichedResult = attachUiContext(result, getCrateApi());
+        diagnostics.finishTool(call, enrichedResult);
+        return enrichedResult;
       } catch (error) {
         diagnostics.failTool(call, error);
         throw error;
@@ -1044,6 +1063,12 @@ async function registerTool(modelContext, tool) {
   };
   await modelContext.registerTool(instrumentedTool);
   diagnostics.record('runtime', 'tool_registered', { tool: tool.name });
+}
+
+function attachUiContext(result, api) {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return result;
+  const uiContext = api?.getUiContext?.();
+  return uiContext ? { ...result, ui_context: uiContext } : result;
 }
 
 function getAvailableModelContext() {
@@ -1485,6 +1510,7 @@ async function boot() {
   installAgentHudDrag();
   installAgentAudioUnlock();
   installFloatingSurfaceViewportGuard();
+  installDiagnosticsDownload();
   try {
     const api = await waitForCrateApi();
     installDebugPanel(api);

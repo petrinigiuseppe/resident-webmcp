@@ -1,6 +1,6 @@
 /* --- 3D Vinyl Crate digging (Beta) crate.js --- */
 import * as THREE from './vendor/three.module.js';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260829-webmcp-m39';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260829-webmcp-m40';
 
 diagnostics.record('runtime', 'crate_module_loaded', { build_version: WEBMCP_BUILD_VERSION });
 
@@ -138,7 +138,6 @@ let playerError = null;
 let siteAudioEnabled = true;
 let uiAudioContext = null;
 let lastNavigationTickAt = 0;
-let pendingNavigationTick = null;
 let navigationAudioUnlockInstalled = false;
 let pendingPlayback = null;
 let pendingPlaybackResumeInFlight = false;
@@ -281,7 +280,6 @@ window.addEventListener('seph-agent-sound', event => {
   const enabled = event.detail?.enabled;
   if (typeof enabled !== 'boolean') return;
   siteAudioEnabled = enabled;
-  if (!siteAudioEnabled) pendingNavigationTick = null;
   audio.muted = !siteAudioEnabled;
   document.documentElement.dataset.siteAudio = siteAudioEnabled ? 'on' : 'off';
   emitPlayerState('site_audio_changed');
@@ -357,14 +355,6 @@ function playNavigationTickNow(direction, agent, context) {
   });
 }
 
-function flushPendingNavigationTick(context) {
-  if (!pendingNavigationTick || !siteAudioEnabled || !context || context.state !== 'running') return;
-  const pending = pendingNavigationTick;
-  pendingNavigationTick = null;
-  lastNavigationTickAt = performance.now();
-  playNavigationTickNow(pending.direction, pending.agent, context);
-}
-
 function playCrateNavigationTick(direction = 1, { agent = false, force = false } = {}) {
   if (!siteAudioEnabled) {
     diagnostics.record('audio', 'navigation_tick_skipped', { reason: 'site_audio_disabled' });
@@ -383,20 +373,15 @@ function playCrateNavigationTick(direction = 1, { agent = false, force = false }
     return;
   }
   if (context.state !== 'running') {
-    pendingNavigationTick = {
-      direction: normalizedDirection,
-      agent: Boolean(agent)
-    };
-    diagnostics.record('audio', 'navigation_tick_pending', {
+    diagnostics.record('audio', 'navigation_tick_blocked', {
       direction: normalizedDirection,
       agent: Boolean(agent),
       context_state: context.state,
-      unlock: 'trusted_pointer_or_key_gesture'
+      reason: 'audio_context_not_unlocked',
+      unlock: 'trusted_pointer_or_key_gesture',
+      queued: false
     });
     lastNavigationTickAt = nowWall;
-    if (typeof context.resume === 'function') {
-      context.resume().then(() => flushPendingNavigationTick(context)).catch(() => {});
-    }
     return;
   }
 
@@ -405,9 +390,10 @@ function playCrateNavigationTick(direction = 1, { agent = false, force = false }
 }
 
 function unlockNavigationAudio(event) {
-  if (event?.isTrusted !== true || !pendingNavigationTick || !siteAudioEnabled) return;
+  if (event?.isTrusted !== true || !siteAudioEnabled) return;
   const context = getUiAudioContext();
   if (!context || context.state === 'closed') return;
+  if (context.state === 'running') return;
   diagnostics.record('audio', 'navigation_unlock_attempt', {
     event_type: event.type,
     context_state: context.state
@@ -420,7 +406,6 @@ function unlockNavigationAudio(event) {
       event_type: event.type,
       context_state: context.state
     });
-    flushPendingNavigationTick(context);
   }).catch(error => {
     diagnostics.record('audio', 'navigation_unlock_failed', {
       event_type: event.type,
@@ -434,9 +419,9 @@ function installNavigationAudioUnlock() {
   if (navigationAudioUnlockInstalled) return;
   navigationAudioUnlockInstalled = true;
   const unlock = event => unlockNavigationAudio(event);
-  // Wheel/scroll is not a portable browser user-activation signal. It may
-  // queue a tick, but only a trusted pointer, touch or keyboard gesture can
-  // resume a suspended AudioContext.
+  // Wheel/scroll is not a portable browser user-activation signal. It never
+  // queues a tick; only a trusted pointer, touch or keyboard gesture can
+  // resume a suspended AudioContext for the next navigation event.
   ['pointerdown', 'keydown', 'touchstart', 'touchend'].forEach(eventName => {
     window.addEventListener(eventName, unlock, { passive: true });
   });
@@ -896,6 +881,7 @@ function publishCrateApi() {
       cart_count: readLocalCrateItems().length,
       site_audio_enabled: siteAudioEnabled,
       player: getPlayerState(),
+      ui_context: getUiContext(),
       webgl: Boolean(renderer),
       webmcp_candidate: Boolean(document.modelContext),
       purchase_automation: false
@@ -907,6 +893,7 @@ function publishCrateApi() {
     setCatalogSort,
     getTheme: getThemeState,
     setTheme,
+    getUiContext,
     getPlayerState,
     playTrack: playTrackById,
     pauseTrack: pauseAudio,
@@ -3357,6 +3344,40 @@ function getPendingPlaybackSummary() {
   return pendingPlayback ? { ...pendingPlayback } : null;
 }
 
+function getUiContext() {
+  const view = isUserCrateViewActive ? 'my_crate' : 'shop';
+  const visibleRecords = isUserCrateViewActive
+    ? userRecordsData.map(entry => findMasterCatalogItem(entry?.recordId || entry?.slug)).filter(Boolean)
+    : catalog;
+  const activeRecordIndex = isUserCrateViewActive ? userActiveIndex : activeIndex;
+  const recordIsSelected = isUserCrateViewActive ? userIsSelected : isSelected;
+  const activeRecord = visibleRecords[activeRecordIndex] || null;
+  const detailsPanel = document.getElementById('details-panel');
+  const detailsOpen = Boolean(recordIsSelected && detailsPanel && !detailsPanel.classList.contains('hidden'));
+  const openRecord = detailsOpen ? activeRecord : null;
+
+  return {
+    view,
+    sort: currentFilter,
+    search_query: currentSearchQuery || null,
+    visible_index: Number.isInteger(activeRecordIndex) ? activeRecordIndex : null,
+    visible_count: visibleRecords.length,
+    selected: Boolean(recordIsSelected),
+    details_open: detailsOpen,
+    active_record_id: activeRecord ? getCrateRecordId(activeRecord) : null,
+    active_record: activeRecord ? summarizeCrateItem(activeRecord) : null,
+    open_record_id: openRecord ? getCrateRecordId(openRecord) : null,
+    open_record: openRecord ? summarizeCrateItem(openRecord) : null,
+    agent_focus_record_ids: [...agentFocusRecordIds],
+    player: {
+      track_id: currentPlayingTrackId,
+      track_title: currentPlayingTrack?.title || null,
+      release_record_id: currentPlayingReleaseId,
+      is_playing: Boolean(currentPlayingTrackId && !audio.paused)
+    }
+  };
+}
+
 function syncPendingPlaybackState() {
   const requiresGesture = Boolean(pendingPlayback);
   const player = document.getElementById('custom-player');
@@ -3458,7 +3479,8 @@ function getPlayerState() {
     pending_playback: getPendingPlaybackSummary(),
     source: audio.currentSrc || audio.src || currentPlayingTrack?.preview_url || null,
     ready_state: audio.readyState,
-    error: playerError
+    error: playerError,
+    ui_context: getUiContext()
   };
 }
 
@@ -3687,7 +3709,6 @@ function setSiteAudioEnabled(enabled) {
   siteAudioEnabled = Boolean(enabled);
   audio.muted = !siteAudioEnabled;
   if (!siteAudioEnabled) {
-    pendingNavigationTick = null;
     invalidatePlaybackRequests();
     clearPendingPlayback();
   }

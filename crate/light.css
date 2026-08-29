@@ -369,8 +369,21 @@
     color: #8a8a8f;
   }
 
-  .agent-debug-log-meta {
+  .site-diagnostics {
     color: #8a8a8f;
+  }
+
+  .site-diagnostics-download {
+    border-color: rgba(0, 0, 0, 0.12);
+    background: rgba(255, 255, 255, 0.72);
+    color: #636366;
+  }
+
+  .site-diagnostics-download:hover,
+  .site-diagnostics-download:focus-visible {
+    border-color: rgba(0, 0, 0, 0.28);
+    background: rgba(255, 255, 255, 0.94);
+    color: #1d1d1f;
   }
 
   #canvas-container {

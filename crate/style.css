@@ -650,18 +650,6 @@ html[data-agent-intro="active"] .agent-mode-intro {
   grid-column: 1 / -1;
 }
 
-.agent-debug-log-meta {
-  display: flex;
-  grid-column: 1 / -1;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 1px 2px 0;
-  color: var(--text-dim);
-  font-size: 0.44rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
 .agent-debug-action:disabled {
   cursor: wait;
   opacity: 0.45;
@@ -3214,6 +3202,57 @@ html[data-agent-mode="returning"] .mobile-agent-hint {
   align-items: flex-end;
   z-index: 5;
   pointer-events: auto;
+}
+
+.site-footer-desktop .footer-left {
+  display: flex;
+  align-items: flex-end;
+  gap: 22px;
+}
+
+.site-diagnostics {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 0.48rem;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.site-diagnostics-download {
+  padding: 7px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(13, 13, 16, 0.56);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.52rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+
+.site-diagnostics-download:hover,
+.site-diagnostics-download:focus-visible {
+  border-color: var(--agent-color, #8acb92);
+  background: rgba(13, 13, 16, 0.76);
+  color: var(--text-primary);
+}
+
+.site-diagnostics-download:focus-visible {
+  outline: 1px solid var(--agent-color, #8acb92);
+  outline-offset: 3px;
+}
+
+.site-diagnostics-log-count,
+.site-diagnostics-log-status {
+  white-space: nowrap;
 }
 
 .site-footer-desktop .copyright-line {

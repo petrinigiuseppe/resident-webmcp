@@ -9,7 +9,7 @@
  * routine transport or UI telemetry.
  */
 
-export const WEBMCP_BUILD_VERSION = '20260829-webmcp-m39';
+export const WEBMCP_BUILD_VERSION = '20260829-webmcp-m40';
 
 const DIAGNOSTICS_SCHEMA = 'sephmartin.webmcp.diagnostics.v1';
 const STORAGE_KEY = 'seph.webmcp.diagnostics.v1';
@@ -149,6 +149,7 @@ function getSnapshot() {
       hud: elementSnapshot('agent-mode-hud'),
       mobile_hint: elementSnapshot('mobile-agent-hint'),
       debug_panel: elementSnapshot('agent-debug-panel'),
+      diagnostics_download: elementSnapshot('site-diagnostics-download'),
       player: elementSnapshot('custom-player')
     },
     player: {
@@ -158,7 +159,9 @@ function getSnapshot() {
       play_button_playing: Boolean(document.getElementById('player-play-btn')?.classList.contains('is-playing')),
       active_track_id: activeTrack?.dataset?.trackId || null,
       active_release_record_id: activeTrack?.dataset?.releaseRecordId || null,
-      selected_record_id: buyButton?.dataset?.slug || null
+      selected_record_id: buyButton?.dataset?.slug || null,
+      selected_record_title: document.getElementById('detail-title')?.textContent?.trim() || null,
+      details_open: Boolean(document.getElementById('details-panel') && !document.getElementById('details-panel').classList.contains('hidden'))
     }
   };
 }
