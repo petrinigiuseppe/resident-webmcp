@@ -10,7 +10,13 @@
  */
 
 import { buildCollectionStats, buildMusicDNA, getRecordId, scoreCatalog } from './song-dna.js';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260828-webmcp-m34';
+import {
+  getAgentPresenceText,
+  getAgentStatusText,
+  isPassiveAgentStatus,
+  resolveAgentOperation
+} from './agent-state.js?v=20260829-webmcp-m35';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260829-webmcp-m35';
 
 const MAX_TOOL_OUTPUT_RECORDS = 12;
 const ACTIVE_STATES = new Set(['loading', 'active', 'busy', 'standby']);
@@ -19,29 +25,13 @@ const SESSION_HANDSHAKE_MS = 180;
 const AGENT_INTRO_MS = 2400;
 const DIG_PREVIEW_MS = 420;
 const DRAG_MARGIN_PX = 12;
-const AGENT_OPERATION_LABELS = {
-  human: 'Human control',
-  loading: 'Connecting',
-  idle: 'Idle',
-  listening: 'Listening',
-  thinking: 'Thinking',
-  orienting: 'Orienting',
-  browsing: 'Browsing',
-  searching: 'Searching',
-  digging: 'Digging',
-  focusing: 'Moving picks',
-  inspecting: 'Inspecting',
-  curating: 'Curating',
-  preparing: 'Preparing review',
-  human_override: 'Human override',
-  returning: 'Releasing'
-};
 const RETURN_FOCUS_CLEAR_MS = 560;
 const RETURN_TO_HUMAN_MS = 960;
 const HUMAN_OVERRIDE_EXCLUSION_SELECTOR = '#agent-mode-hud, #mobile-agent-hint, #agent-debug-panel, #agent-debug-trigger, #details-panel, [data-agent-debug-action]';
 
 let agentState = 'human';
 let agentOperation = 'human';
+let previewIsPlaying = false;
 let standbyTimer = null;
 let activityDepth = 0;
 let toolRegistrationComplete = false;
@@ -89,18 +79,7 @@ function inferAgentOperation(state, text = '') {
     return 'thinking';
   }
 
-  return {
-    human: 'human',
-    loading: 'loading',
-    active: 'idle',
-    standby: 'idle',
-    override: 'human_override',
-    returning: 'returning'
-  }[state] || 'thinking';
-}
-
-function isIdleAgentStatus(state = agentState, operation = agentOperation) {
-  return (state === 'active' || state === 'standby') && operation === 'idle';
+  return resolveAgentOperation(state, '', previewIsPlaying);
 }
 
 function updateSoundControl() {
@@ -261,7 +240,7 @@ function setSoundEnabled(enabled) {
     if (context?.state === 'suspended') context.resume().catch(() => {});
   }
   updateSoundControl();
-  if (agentSoundEnabled) playAgentCue('active', 'listening');
+  if (agentSoundEnabled) playAgentCue('active', agentOperation);
   dispatch('seph-agent-sound', {
     enabled: agentSoundEnabled,
     scope: 'site',
@@ -335,64 +314,12 @@ function setAgentState(state, detail = {}) {
   const previousOperation = agentOperation;
   if (state !== 'returning') returnTransitionId += 1;
   agentState = state;
-  agentOperation = detail.operation || inferAgentOperation(state, detail.text);
-  document.documentElement.dataset.agentMode = state;
-  document.documentElement.dataset.agentOperation = agentOperation;
-
-  const hud = document.getElementById('agent-mode-hud');
-  const label = document.getElementById('agent-mode-label');
-  const detailEl = document.getElementById('agent-mode-detail');
-  const mobileLabel = document.getElementById('mobile-agent-hint-mode');
-  const live = document.getElementById('agent-mode-live');
-  const labels = {
-    human: 'HUMAN MODE',
-    loading: 'AGENT MODE',
-    active: 'AGENT MODE',
-    busy: 'AGENT MODE',
-    standby: 'AGENT MODE',
-    override: 'HUMAN MODE',
-    returning: 'AGENT MODE'
-  };
-  const details = {
-    human: 'READY FOR YOUR SELECTION',
-    loading: 'CONNECTING TO THE CRATE',
-    active: '',
-    busy: detail.text || 'READING THE CRATE',
-    standby: '',
-    override: 'HUMAN INPUT HAS PRIORITY',
-    returning: 'RETURNING CONTROL'
-  };
-  const operationLabel = AGENT_OPERATION_LABELS[agentOperation] || AGENT_OPERATION_LABELS.thinking;
-  const hudDetail = toHudText(detail.text || details[state] || '');
-  const hudOperation = toHudText(operationLabel);
-
-  if (hud) {
-    hud.dataset.state = state;
-    hud.dataset.operation = agentOperation;
-    hud.setAttribute('aria-busy', String(state === 'loading' || state === 'busy'));
-  }
-  if (label) label.textContent = labels[state] || labels.human;
-  if (detailEl) detailEl.textContent = hudDetail;
-  if (mobileLabel) {
-    if (state === 'human' || state === 'override') {
-      mobileLabel.textContent = labels[state] || labels.human;
-    } else {
-      mobileLabel.textContent = isIdleAgentStatus(state, agentOperation)
-        ? (labels[state] || 'AGENT MODE')
-        : `${labels[state] || 'AGENT MODE'} · ${hudOperation}`;
-    }
-  }
-  updateAgentPresenceVisibility();
-  if (live && state !== 'human') {
-    live.textContent = isIdleAgentStatus(state, agentOperation)
-      ? (labels[state] || 'AGENT MODE')
-      : `${labels[state] || ''} ${hudOperation}`.trim();
-  }
-  updateSoundControl();
-
-  if (state === 'human') clearAgentIntro();
-
-  dispatch('seph-agent-state', { state, operation: agentOperation, ...detail });
+  agentOperation = resolveAgentOperation(
+    state,
+    detail.operation || inferAgentOperation(state, detail.text),
+    previewIsPlaying
+  );
+  renderAgentState(detail);
 
   if (previousState !== state || previousOperation !== agentOperation) {
     playAgentCue(state, agentOperation);
@@ -410,6 +337,86 @@ function setAgentState(state, detail = {}) {
     }, 12000);
   }
 }
+
+function renderAgentState(detail = {}) {
+  const state = agentState;
+  document.documentElement.dataset.agentMode = state;
+  document.documentElement.dataset.agentOperation = agentOperation;
+
+  const hud = document.getElementById('agent-mode-hud');
+  const label = document.getElementById('agent-mode-label');
+  const detailEl = document.getElementById('agent-mode-detail');
+  const mobileLabel = document.getElementById('mobile-agent-hint-mode');
+  const live = document.getElementById('agent-mode-live');
+  const labels = {
+    human: 'HUMAN MODE',
+    loading: 'AGENT MODE',
+    active: 'AGENT MODE',
+    busy: 'AGENT MODE',
+    standby: 'AGENT MODE',
+    override: 'HUMAN MODE',
+    returning: 'AGENT MODE'
+  };
+  const passiveDetail = getAgentPresenceText(state, agentOperation);
+  const details = {
+    human: 'READY FOR YOUR SELECTION',
+    loading: 'CONNECTING TO THE CRATE',
+    active: passiveDetail,
+    busy: detail.text || 'READING THE CRATE',
+    standby: passiveDetail,
+    override: 'HUMAN INPUT HAS PRIORITY',
+    returning: 'RETURNING CONTROL'
+  };
+  const hudDetail = toHudText(detail.text || details[state] || '');
+
+  if (hud) {
+    hud.dataset.state = state;
+    hud.dataset.operation = agentOperation;
+    hud.setAttribute('aria-busy', String(state === 'loading' || state === 'busy'));
+  }
+  if (label) label.textContent = labels[state] || labels.human;
+  if (detailEl) detailEl.textContent = hudDetail;
+  if (mobileLabel) {
+    if (state === 'human' || state === 'override') {
+      mobileLabel.textContent = labels[state] || labels.human;
+    } else {
+      mobileLabel.textContent = getAgentStatusText(state, agentOperation);
+    }
+  }
+  updateAgentPresenceVisibility();
+  if (live && state !== 'human') {
+    live.textContent = getAgentStatusText(state, agentOperation);
+  }
+  updateSoundControl();
+
+  if (state === 'human') clearAgentIntro();
+
+  dispatch('seph-agent-state', { ...detail, state, operation: agentOperation });
+}
+
+function syncAgentPlaybackPresence(isPlaying) {
+  const nextIsPlaying = Boolean(isPlaying);
+  if (nextIsPlaying === previewIsPlaying) return;
+  previewIsPlaying = nextIsPlaying;
+  if (!isPassiveAgentStatus(agentState, agentOperation)) return;
+
+  const nextOperation = resolveAgentOperation(agentState, agentOperation, previewIsPlaying);
+  if (nextOperation === agentOperation) return;
+  agentOperation = nextOperation;
+  // Playback changes are a passive presence update: refresh the surfaces and
+  // the bridge event, but do not play an Agent action cue or restart timers.
+  renderAgentState({ source: 'player' });
+}
+
+function syncAgentPlaybackFromApi(api) {
+  const playerState = api?.getPlayerState?.() || api?.status?.()?.player;
+  if (!playerState || typeof playerState.is_playing !== 'boolean') return;
+  syncAgentPlaybackPresence(playerState.is_playing);
+}
+
+window.addEventListener('seph-player-state', event => {
+  syncAgentPlaybackPresence(event.detail?.is_playing === true);
+});
 
 function nextPaint() {
   return new Promise(resolve => {
@@ -476,6 +483,7 @@ async function withAgentActivity(text, work) {
 async function ensureAgentSession(intent = 'resume curator request') {
   const api = getCrateApi();
   if (!api) return resultError('CRATE_API_UNAVAILABLE', 'The crate controls are not ready for Agent Mode.');
+  syncAgentPlaybackFromApi(api);
 
   if (curatorSessionPromise) return curatorSessionPromise;
 
@@ -507,6 +515,9 @@ function startCuratorSession(api, intent = '') {
 }
 
 async function startCuratorSessionInternal(api, intent = '') {
+  // The player may have started before WebMCP attached its event listener.
+  // Read the authoritative API state before deriving the first passive HUD.
+  syncAgentPlaybackFromApi(api);
   const enteringAgentMode = !ACTIVE_STATES.has(agentState) || !agentModeHasBeenEntered;
   if (enteringAgentMode) {
     agentModeHasBeenEntered = true;
@@ -866,12 +877,7 @@ function updateDebugPanel() {
     status.textContent = 'Human Mode';
     return;
   }
-  if (isIdleAgentStatus(currentMode, currentOp)) {
-    status.textContent = 'AGENT MODE';
-  } else {
-    const opLabel = AGENT_OPERATION_LABELS[currentOp] || currentOp;
-    status.textContent = `AGENT MODE · ${toHudText(opLabel)}`;
-  }
+  status.textContent = getAgentStatusText(currentMode, currentOp);
 }
 
 function installDebugPanel(api) {

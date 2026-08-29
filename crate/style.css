@@ -3967,3 +3967,17 @@ html[data-agent-mode="returning"] .mobile-agent-hint {
     border-top-color: #1d1d1f !important;
   }
 }
+
+/* Passive Agent Mode has two distinct presences: a quiet, slower breath while
+   waiting for instructions and a slightly more active breath while a preview
+   is actually playing. The copy and data attributes remain the source of
+   truth; this is only the visual morph around that state. */
+html[data-agent-operation="waiting"] .agent-mode-core {
+  animation-duration: 9s;
+  opacity: 0.56;
+}
+
+html[data-agent-operation="listening"] .agent-mode-core {
+  animation-duration: 5.8s;
+  opacity: 0.78;
+}
