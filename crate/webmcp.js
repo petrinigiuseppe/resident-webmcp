@@ -10,7 +10,7 @@
  */
 
 import { buildCollectionStats, buildMusicDNA, getRecordId, scoreCatalog } from './song-dna.js';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260828-webmcp-m33';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260828-webmcp-m34';
 
 const MAX_TOOL_OUTPUT_RECORDS = 12;
 const ACTIVE_STATES = new Set(['loading', 'active', 'busy', 'standby']);
@@ -22,6 +22,7 @@ const DRAG_MARGIN_PX = 12;
 const AGENT_OPERATION_LABELS = {
   human: 'Human control',
   loading: 'Connecting',
+  idle: 'Idle',
   listening: 'Listening',
   thinking: 'Thinking',
   orienting: 'Orienting',
@@ -91,15 +92,15 @@ function inferAgentOperation(state, text = '') {
   return {
     human: 'human',
     loading: 'loading',
-    active: 'listening',
-    standby: 'listening',
+    active: 'idle',
+    standby: 'idle',
     override: 'human_override',
     returning: 'returning'
   }[state] || 'thinking';
 }
 
 function isIdleAgentStatus(state = agentState, operation = agentOperation) {
-  return (state === 'active' || state === 'standby') && operation === 'listening';
+  return (state === 'active' || state === 'standby') && operation === 'idle';
 }
 
 function updateSoundControl() {
@@ -355,9 +356,9 @@ function setAgentState(state, detail = {}) {
   const details = {
     human: 'READY FOR YOUR SELECTION',
     loading: 'CONNECTING TO THE CRATE',
-    active: 'LISTENING',
+    active: '',
     busy: detail.text || 'READING THE CRATE',
-    standby: 'LISTENING',
+    standby: '',
     override: 'HUMAN INPUT HAS PRIORITY',
     returning: 'RETURNING CONTROL'
   };
@@ -484,7 +485,7 @@ async function ensureAgentSession(intent = 'resume curator request') {
   }
 
   if (agentState === 'standby') {
-    setAgentState('active', { operation: 'listening' });
+    setAgentState('active', { operation: 'idle' });
   }
   return null;
 }
@@ -541,7 +542,7 @@ async function startCuratorSessionInternal(api, intent = '') {
     return resultError('SESSION_TRANSITION_INTERRUPTED', 'The curator session was interrupted before the crate became ready.');
   }
 
-  setAgentState('active', { operation: 'listening' });
+  setAgentState('active', { operation: 'idle' });
   return {
     ok: true,
     agent_mode: 'active',
@@ -1081,6 +1082,31 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   });
 
   await registerTool(modelContext, {
+    name: 'sort_catalog',
+    title: 'Sort crate by latest, most popular or oldest',
+    description: 'Changes the visible crate ordering without text search. Use sort=popular when the user asks for most popular or best-selling releases, and sort=oldest when the user asks for the oldest or earliest releases. Use sort=latest to restore newest-first order.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sort: { type: 'string', enum: ['latest', 'popular', 'oldest'] }
+      },
+      required: ['sort'],
+      additionalProperties: false
+    },
+    annotations: uiMutation,
+    async execute(input = {}) {
+      return withAgentActivity('Sorting the crate', async () => {
+        const sort = trimText(input.sort, 20).toLowerCase();
+        if (!['latest', 'popular', 'oldest'].includes(sort)) {
+          return resultError('INVALID_SORT', 'sort must be latest, popular, or oldest.');
+        }
+        return api.setCatalogSort?.(sort)
+          || resultError('CATALOG_SORT_UNAVAILABLE', 'The catalog sort controls are not available.');
+      });
+    }
+  });
+
+  await registerTool(modelContext, {
     name: 'search_catalog',
     title: 'Search visible catalog',
     description: 'Searches the existing crate search surface by release title or artist, updates the visible crate, and opens the first match in the existing Song sidebar. Use dig_by_descriptor for metadata DNA matching.',
@@ -1366,11 +1392,12 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   toolRegistrationComplete = true;
   document.documentElement.dataset.webmcp = 'ready';
   dispatch('seph-webmcp-ready', {
-    tool_count: 14,
+    tool_count: 15,
     model_context_source: modelContextSource,
     tools: [
       'start_curator_session',
       'get_collection_stats',
+      'sort_catalog',
       'search_catalog',
       'dig_by_descriptor',
       'focus_records',

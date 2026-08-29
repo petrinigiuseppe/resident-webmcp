@@ -1,6 +1,6 @@
 /* --- 3D Vinyl Crate digging (Beta) crate.js --- */
 import * as THREE from './vendor/three.module.js';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260828-webmcp-m33';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260828-webmcp-m34';
 
 diagnostics.record('runtime', 'crate_module_loaded', { build_version: WEBMCP_BUILD_VERSION });
 
@@ -136,6 +136,8 @@ let playerError = null;
 let siteAudioEnabled = true;
 let uiAudioContext = null;
 let lastNavigationTickAt = 0;
+let pendingNavigationTick = null;
+let navigationAudioUnlockInstalled = false;
 let pendingPlayback = null;
 let pendingPlaybackResumeInFlight = false;
 let playbackRequestToken = 0;
@@ -178,6 +180,7 @@ window.addEventListener('seph-agent-sound', event => {
   const enabled = event.detail?.enabled;
   if (typeof enabled !== 'boolean') return;
   siteAudioEnabled = enabled;
+  if (!siteAudioEnabled) pendingNavigationTick = null;
   audio.muted = !siteAudioEnabled;
   document.documentElement.dataset.siteAudio = siteAudioEnabled ? 'on' : 'off';
   emitPlayerState('site_audio_changed');
@@ -208,60 +211,95 @@ function getUiAudioContext() {
 // Navigation feedback is a subtle, tactile mechanical crate tick.
 // It follows the site-wide sound toggle and routes through the shared AudioContext,
 // providing clear auditory feedback for human browsing and sequential agent digging.
-function playCrateNavigationTick(direction = 1, { agent = false } = {}) {
+function playNavigationTickNow(direction, agent, context) {
+  if (!siteAudioEnabled || !context || context.state !== 'running') return;
+  const now = context.currentTime;
+  const duration = agent ? 0.065 : 0.048;
+  const frameCount = Math.max(1, Math.floor(context.sampleRate * duration));
+  const buffer = context.createBuffer(1, frameCount, context.sampleRate);
+  const samples = buffer.getChannelData(0);
+  let lowFrequencyNoise = 0;
+  const baseFreq = agent
+    ? (direction > 0 ? 680 : 540)
+    : (direction > 0 ? 760 : 620);
+  const decayRate = 28 / duration;
+
+  for (let index = 0; index < frameCount; index += 1) {
+    const t = index / context.sampleRate;
+    const whiteNoise = Math.random() * 2 - 1;
+    lowFrequencyNoise = lowFrequencyNoise * 0.72 + whiteNoise * 0.28;
+    const env = Math.exp(-t * decayRate);
+    const tone = Math.sin(2 * Math.PI * (baseFreq - t * 350) * t);
+    samples[index] = (tone * 0.65 + lowFrequencyNoise * 0.35) * env;
+  }
+
+  const source = context.createBufferSource();
+  const filter = context.createBiquadFilter();
+  const gain = context.createGain();
+  source.buffer = buffer;
+  filter.type = 'lowpass';
+  filter.frequency.setValueAtTime(agent ? 2200 : 2600, now);
+  filter.Q.setValueAtTime(0.7, now);
+  const peakGain = agent ? AGENT_NAVIGATION_MIX.agent : AGENT_NAVIGATION_MIX.human;
+  gain.gain.setValueAtTime(peakGain, now);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+  source.connect(filter);
+  filter.connect(gain);
+  gain.connect(context.destination);
+  source.start(now);
+  source.stop(now + duration + 0.01);
+}
+
+function flushPendingNavigationTick(context) {
+  if (!pendingNavigationTick || !siteAudioEnabled || !context || context.state !== 'running') return;
+  const pending = pendingNavigationTick;
+  pendingNavigationTick = null;
+  lastNavigationTickAt = performance.now();
+  playNavigationTickNow(pending.direction, pending.agent, context);
+}
+
+function playCrateNavigationTick(direction = 1, { agent = false, force = false } = {}) {
   if (!siteAudioEnabled) return;
+  const normalizedDirection = direction > 0 ? 1 : -1;
   const nowWall = performance.now();
   const throttleMs = agent ? 90 : 45;
-  if (nowWall - lastNavigationTickAt < throttleMs) return;
-  lastNavigationTickAt = nowWall;
+  if (!force && nowWall - lastNavigationTickAt < throttleMs) return;
 
   const context = getUiAudioContext();
   if (!context || context.state === 'closed') return;
-
-  const play = () => {
-    if (!siteAudioEnabled) return;
-    const now = context.currentTime;
-    const duration = agent ? 0.065 : 0.048;
-    const frameCount = Math.max(1, Math.floor(context.sampleRate * duration));
-    const buffer = context.createBuffer(1, frameCount, context.sampleRate);
-    const samples = buffer.getChannelData(0);
-    let lowFrequencyNoise = 0;
-    const baseFreq = agent
-      ? (direction > 0 ? 680 : 540)
-      : (direction > 0 ? 760 : 620);
-    const decayRate = 28 / duration;
-
-    for (let index = 0; index < frameCount; index += 1) {
-      const t = index / context.sampleRate;
-      const whiteNoise = Math.random() * 2 - 1;
-      lowFrequencyNoise = lowFrequencyNoise * 0.72 + whiteNoise * 0.28;
-      const env = Math.exp(-t * decayRate);
-      const tone = Math.sin(2 * Math.PI * (baseFreq - t * 350) * t);
-      samples[index] = (tone * 0.65 + lowFrequencyNoise * 0.35) * env;
+  if (context.state !== 'running') {
+    pendingNavigationTick = {
+      direction: normalizedDirection,
+      agent: Boolean(agent)
+    };
+    lastNavigationTickAt = nowWall;
+    if (typeof context.resume === 'function') {
+      context.resume().then(() => flushPendingNavigationTick(context)).catch(() => {});
     }
-
-    const source = context.createBufferSource();
-    const filter = context.createBiquadFilter();
-    const gain = context.createGain();
-    source.buffer = buffer;
-    filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(agent ? 2200 : 2600, now);
-    filter.Q.setValueAtTime(0.7, now);
-    const peakGain = agent ? AGENT_NAVIGATION_MIX.agent : AGENT_NAVIGATION_MIX.human;
-    gain.gain.setValueAtTime(peakGain, now);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
-    source.connect(filter);
-    filter.connect(gain);
-    gain.connect(context.destination);
-    source.start(now);
-    source.stop(now + duration + 0.01);
-  };
-
-  if (context.state === 'suspended') {
-    context.resume().then(play).catch(() => {});
-  } else {
-    play();
+    return;
   }
+
+  lastNavigationTickAt = nowWall;
+  playNavigationTickNow(normalizedDirection, Boolean(agent), context);
+}
+
+function unlockNavigationAudio(event) {
+  if (event?.isTrusted !== true || !pendingNavigationTick || !siteAudioEnabled) return;
+  const context = getUiAudioContext();
+  if (!context || context.state === 'closed') return;
+  const resume = context.state === 'running'
+    ? Promise.resolve()
+    : context.resume?.() || Promise.resolve();
+  resume.then(() => flushPendingNavigationTick(context)).catch(() => {});
+}
+
+function installNavigationAudioUnlock() {
+  if (navigationAudioUnlockInstalled) return;
+  navigationAudioUnlockInstalled = true;
+  const unlock = event => unlockNavigationAudio(event);
+  ['pointerdown', 'keydown', 'touchstart', 'wheel'].forEach(eventName => {
+    window.addEventListener(eventName, unlock, { passive: true });
+  });
 }
 
 window.addEventListener('seph-agent-focus', event => {
@@ -273,49 +311,52 @@ window.addEventListener('seph-agent-focus', event => {
   syncAgentFocusVisuals();
 });
 
-function filterAndSortCatalog(skipApply = false) {
+function getCatalogProductSlug(item) {
+  const itemSlug = String(item?.slug || '').trim();
+  if (itemSlug) return itemSlug;
+
+  const pageUrl = String(item?.page_url || '').trim();
+  const parts = pageUrl.split('/').filter(Boolean);
+  const pageSlug = parts[parts.length - 1] || '';
+  if (parts[0] === 'album' || parts[0] === 'track') return `${parts[0]}-${pageSlug}`;
+  return pageSlug;
+}
+
+function getCatalogPopularity(item) {
+  const aliases = [
+    getCatalogProductSlug(item),
+    getCrateRecordId(item),
+    String(item?.page_url || '').replace(/^\//, '').replace(/\//g, '-')
+  ].map(value => String(value || '').trim()).filter(Boolean);
+  return aliases.reduce((highest, alias) => Math.max(highest, Number(bestSellersMap.get(alias) || 0)), 0);
+}
+
+function compareCatalogItems(a, b) {
+  const dateA = a?.release_date ? new Date(a.release_date).getTime() : 0;
+  const dateB = b?.release_date ? new Date(b.release_date).getTime() : 0;
+
+  if (currentFilter === 'oldest') return dateA - dateB;
+  if (currentFilter === 'popular') {
+    const popularityA = getCatalogPopularity(a);
+    const popularityB = getCatalogPopularity(b);
+    if (popularityB !== popularityA) return popularityB - popularityA;
+
+    const priorityA = typeof a?.sort_priority === 'number' ? a.sort_priority : 0;
+    const priorityB = typeof b?.sort_priority === 'number' ? b.sort_priority : 0;
+    if (priorityB !== priorityA) return priorityB - priorityA;
+  }
+
+  return dateB - dateA;
+}
+
+function filterAndSortCatalog(skipApply = false, { preservePlayer = false } = {}) {
   const localItems = readLocalCrateItems();
   let workingList = masterCatalog.filter(item => {
-    const slug = item.page_url.split('/').pop();
-    return !localItems.includes(slug);
+    return !localItems.includes(getCrateRecordId(item));
   });
 
   // 1. Sort logic
-  if (currentFilter === 'latest') {
-    workingList.sort((a, b) => {
-      const isOceanA = a.title && a.title.toLowerCase().includes("ocean");
-      const isOceanB = b.title && b.title.toLowerCase().includes("ocean");
-      if (isOceanA && !isOceanB) return -1;
-      if (!isOceanA && isOceanB) return 1;
-
-      const dateA = a.release_date ? new Date(a.release_date) : new Date(0);
-      const dateB = b.release_date ? new Date(b.release_date) : new Date(0);
-      return dateB - dateA;
-    });
-  } else if (currentFilter === 'popular') {
-    workingList.sort((a, b) => {
-      const getSlug = (item) => {
-        if (item.slug) return item.slug;
-        if (item.page_url) return item.page_url.replace(/^\//, '').replace(/\//g, '-');
-        return '';
-      };
-
-      const slugA = getSlug(a);
-      const slugB = getSlug(b);
-
-      const aUnits = bestSellersMap.get(slugA) || 0;
-      const bUnits = bestSellersMap.get(slugB) || 0;
-      if (bUnits !== aUnits) return bUnits - aUnits;
-
-      const aPrio = typeof a.sort_priority === 'number' ? a.sort_priority : 0;
-      const bPrio = typeof b.sort_priority === 'number' ? b.sort_priority : 0;
-      if (aPrio !== bPrio) return bPrio - aPrio;
-
-      const dateA = a.release_date ? new Date(a.release_date) : new Date(0);
-      const dateB = b.release_date ? new Date(b.release_date) : new Date(0);
-      return dateB - dateA;
-    });
-  }
+  workingList.sort(compareCatalogItems);
 
   // 2. Search filter logic (Only search in title and artist to prevent tag matching false positives)
   if (currentSearchQuery) {
@@ -330,9 +371,34 @@ function filterAndSortCatalog(skipApply = false) {
   window.catalog = catalog;
 
   if (!skipApply) {
-    applyCatalogUpdates();
+    applyCatalogUpdates({ preservePlayer });
   }
   rebuildUserCrateRecords();
+}
+
+function setCatalogSort(sort) {
+  const normalized = String(sort || '').trim().toLowerCase();
+  if (!['latest', 'popular', 'oldest'].includes(normalized)) {
+    return {
+      ok: false,
+      error: { code: 'INVALID_SORT', message: 'sort must be latest, popular, or oldest.' }
+    };
+  }
+
+  currentFilter = normalized;
+  const latestBtn = document.getElementById('sort-latest');
+  const popularBtn = document.getElementById('sort-popular');
+  const filterPill = document.querySelector('.filter-switcher-pill');
+  if (latestBtn) latestBtn.classList.toggle('active', currentFilter === 'latest');
+  if (popularBtn) popularBtn.classList.toggle('active', currentFilter === 'popular');
+  if (filterPill) filterPill.classList.toggle('active-popular', currentFilter === 'popular');
+  filterAndSortCatalog(false, { preservePlayer: true });
+  return {
+    ok: true,
+    sort: currentFilter,
+    visible_count: catalog.length,
+    first_record: catalog[0] ? summarizeCrateItem(catalog[0]) : null
+  };
 }
 
 function getCrateRecordId(item) {
@@ -628,6 +694,7 @@ function publishCrateApi() {
     }),
     getMasterCatalog: () => masterCatalog.slice(),
     getVisibleCatalog: () => catalog.slice(),
+    setCatalogSort,
     getPlayerState,
     playTrack: playTrackById,
     pauseTrack: pauseAudio,
@@ -674,7 +741,7 @@ function publishCrateApi() {
   return api;
 }
 
-function applyCatalogUpdates() {
+function applyCatalogUpdates({ preservePlayer = false } = {}) {
   const count = catalog.length;
 
   recordsData.forEach((rec, idx) => {
@@ -753,7 +820,7 @@ function applyCatalogUpdates() {
 
   // Reset selected/inspected record to index 0 and close details panel to prevent input overlap
   activeIndex = 0;
-  deselectRecord();
+  deselectRecord({ preservePlayer });
 }
 
 // Load catalog from API or fallback
@@ -794,7 +861,7 @@ async function loadCatalogData() {
   }
 
   masterCatalog = [...catalog];
-  filterAndSortCatalog(true); // Initial sort (latest order, Ocean's Groove first)
+  filterAndSortCatalog(true); // Initial sort (newest release date first)
   publishCrateApi();
 
 
@@ -1060,6 +1127,8 @@ function handleDragMove(x, y) {
 
 // UI Elements Event Listeners
 function initUI() {
+  installNavigationAudioUnlock();
+
   // Sliding Filter Switcher Event Listeners
   const latestBtn = document.getElementById('sort-latest');
   const popularBtn = document.getElementById('sort-popular');
@@ -1071,11 +1140,7 @@ function initUI() {
         collapseFilterSwitcher();
         return;
       }
-      latestBtn.classList.add('active');
-      popularBtn.classList.remove('active');
-      if (filterPill) filterPill.classList.remove('active-popular');
-      currentFilter = 'latest';
-      filterAndSortCatalog();
+      setCatalogSort('latest');
       collapseFilterSwitcher();
     });
 
@@ -1084,11 +1149,7 @@ function initUI() {
         collapseFilterSwitcher();
         return;
       }
-      popularBtn.classList.add('active');
-      latestBtn.classList.remove('active');
-      if (filterPill) filterPill.classList.add('active-popular');
-      currentFilter = 'popular';
-      filterAndSortCatalog();
+      setCatalogSort('popular');
       collapseFilterSwitcher();
     });
   }
@@ -1475,14 +1536,14 @@ function initUI() {
         if (shopBtn) shopBtn.classList.remove('active');
         
         const animationStarted = triggerVinylFlyAnimation(slug, () => {
-          filterAndSortCatalog();
-          deselectRecord();
+          filterAndSortCatalog(false, { preservePlayer: true });
+          deselectRecord({ preservePlayer: true });
         });
         updateMyCrateBadge();
 
         if (!animationStarted) {
-          filterAndSortCatalog();
-          deselectRecord();
+          filterAndSortCatalog(false, { preservePlayer: true });
+          deselectRecord({ preservePlayer: true });
         }
         
         if (currentUser) {
@@ -1629,8 +1690,8 @@ function initUI() {
         });
 
         const firstItem = validItems[0];
-        const validSlugs = validItems.map(item => getCrateRecordId(item));
-        const baseSlug = firstItem.slug || validSlugs[0];
+        const validSlugs = validItems.map(getCatalogProductSlug);
+        const baseSlug = getCatalogProductSlug(firstItem) || validSlugs[0];
         
         const params = new URLSearchParams();
         params.set('slug', baseSlug);
@@ -1653,18 +1714,19 @@ function initUI() {
         const data = await res.json();
         
         if (data && data.url) {
-          try {
-            await fetch('/api/analytics-event', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                event: 'checkout_redirect',
-                session_id: localStorage.getItem('seph_martin_session') || '',
-                item_slug: baseSlug
-              })
-            });
-          } catch(e){}
-          
+          // Analytics must never hold the user on the crate after the checkout
+          // session is ready. Keep it best-effort and let the browser carry it
+          // in the background while the redirect starts immediately.
+          fetch('/api/analytics-event', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              event: 'checkout_redirect',
+              session_id: localStorage.getItem('seph_martin_session') || '',
+              item_slug: baseSlug
+            }),
+            keepalive: true
+          }).catch(() => {});
           window.location.href = data.url;
         } else {
           throw new Error("Invalid response payload");
@@ -2736,7 +2798,7 @@ function selectRecord(index) {
 }
 
 // Deselect / Put record back in crate
-function deselectRecord() {
+function deselectRecord({ preservePlayer = false } = {}) {
   isSelected = false;
   userIsSelected = false;
   updateRecordHeights();
@@ -2744,7 +2806,7 @@ function deselectRecord() {
   const panel = document.getElementById('details-panel');
   panel.classList.add('hidden');
   panel.classList.remove('show-collapsed', 'show-expanded');
-  pauseAudio();
+  if (!preservePlayer) pauseAudio();
   resetInactivityTimer();
 }
 
@@ -3318,6 +3380,7 @@ function setSiteAudioEnabled(enabled) {
   siteAudioEnabled = Boolean(enabled);
   audio.muted = !siteAudioEnabled;
   if (!siteAudioEnabled) {
+    pendingNavigationTick = null;
     invalidatePlaybackRequests();
     clearPendingPlayback();
   }
@@ -3855,7 +3918,7 @@ function getOrderedUserCrateSlugs({ excludeAnimating = true } = {}) {
 
   if (currentSearchQuery) {
     localItems = localItems.filter(slug => {
-      const item = masterCatalog.find(c => c.page_url.split('/').pop() === slug);
+      const item = findMasterCatalogItem(slug);
       if (!item) return false;
       const titleMatch = item.title && item.title.toLowerCase().includes(currentSearchQuery);
       const artistMatch = item.artist && item.artist.toLowerCase().includes(currentSearchQuery);
@@ -3867,19 +3930,19 @@ function getOrderedUserCrateSlugs({ excludeAnimating = true } = {}) {
     localItems.reverse();
   } else if (currentFilter === 'popular') {
     localItems.sort((a, b) => {
-      const itemA = masterCatalog.find(c => c.page_url.split('/').pop() === a);
-      const itemB = masterCatalog.find(c => c.page_url.split('/').pop() === b);
+      const itemA = findMasterCatalogItem(a);
+      const itemB = findMasterCatalogItem(b);
       if (!itemA || !itemB) return 0;
-
-      const getSlug = (item) => {
-        if (item.slug) return item.slug;
-        if (item.page_url) return item.page_url.replace(/^\//, '').replace(/\//g, '-');
-        return '';
-      };
-
-      const aUnits = bestSellersMap.get(getSlug(itemA)) || 0;
-      const bUnits = bestSellersMap.get(getSlug(itemB)) || 0;
-      return bUnits - aUnits;
+      const popularityDifference = getCatalogPopularity(itemB) - getCatalogPopularity(itemA);
+      if (popularityDifference !== 0) return popularityDifference;
+      return compareCatalogItems(itemA, itemB);
+    });
+  } else if (currentFilter === 'oldest') {
+    localItems.sort((a, b) => {
+      const itemA = findMasterCatalogItem(a);
+      const itemB = findMasterCatalogItem(b);
+      if (!itemA || !itemB) return 0;
+      return compareCatalogItems(itemA, itemB);
     });
   }
 
