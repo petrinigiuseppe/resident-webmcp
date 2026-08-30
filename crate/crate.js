@@ -1,6 +1,6 @@
 /* --- 3D Vinyl Crate digging (Beta) crate.js --- */
 import * as THREE from './vendor/three.module.js';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260830-webmcp-m44';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260830-webmcp-m45';
 
 diagnostics.record('runtime', 'crate_module_loaded', { build_version: WEBMCP_BUILD_VERSION });
 
@@ -1456,6 +1456,10 @@ async function loadCatalogData() {
   masterCatalog = [...catalog];
   filterAndSortCatalog(true); // Initial sort (newest release date first)
   publishCrateApi();
+  // The first UI pass runs before the async catalog load. Reconcile the
+  // persisted crate now that masterCatalog is available so its compact filter
+  // control is correct immediately after a refresh.
+  updateMyCrateBadge();
 
 
 
