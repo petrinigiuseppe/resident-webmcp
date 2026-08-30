@@ -15,8 +15,8 @@ import {
   getAgentStatusText,
   isPassiveAgentStatus,
   resolveAgentOperation
-} from './agent-state.js?v=20260830-webmcp-m43';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260830-webmcp-m43';
+} from './agent-state.js?v=20260830-webmcp-m44';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260830-webmcp-m44';
 
 const MAX_TOOL_OUTPUT_RECORDS = 12;
 const ACTIVE_STATES = new Set(['loading', 'active', 'busy', 'standby']);
@@ -1576,7 +1576,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   await registerTool(modelContext, {
     name: 'prepare_checkout',
     title: 'Prepare human checkout review',
-    description: 'Shows My Crate and returns a checkout summary for human review. It never opens checkout, creates a payment session, or completes a purchase.',
+    description: 'Shows My Crate and returns a checkout summary for human review. It never opens checkout, creates a payment session, or completes a purchase. For an explicit request such as "buy my crate", use start_checkout.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: uiMutation,
     async execute() {
@@ -1594,6 +1594,18 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   });
 
   await registerTool(modelContext, {
+    name: 'start_checkout',
+    title: 'Start Lemon checkout for My Crate',
+    description: 'For an explicit request such as "buy my crate", activates the visible BUY CRATE control, creates the Lemon checkout session and redirects this tab to Lemon. It does not complete the purchase; payment remains on the Lemon checkout page.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    annotations: uiMutation,
+    async execute() {
+      return withAgentActivity('Opening Lemon checkout', async () => api.startCheckout?.()
+        || resultError('CHECKOUT_UNAVAILABLE', 'The My Crate checkout control is not available.'));
+    }
+  });
+
+  await registerTool(modelContext, {
     name: 'end_curator_session',
     title: 'End Synesthetic Curator session',
     description: 'Returns the page to Human Mode through a soft handoff and clears agent-focused record styling. It does not alter My Crate.',
@@ -1607,7 +1619,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   toolRegistrationComplete = true;
   document.documentElement.dataset.webmcp = 'ready';
   dispatch('seph-webmcp-ready', {
-    tool_count: 18,
+    tool_count: 19,
     model_context_source: modelContextSource,
     tools: [
       'start_curator_session',
@@ -1627,6 +1639,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
       'manage_crate',
       'return_to_main_crate',
       'prepare_checkout',
+      'start_checkout',
       'end_curator_session'
     ]
   });

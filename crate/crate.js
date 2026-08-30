@@ -1,6 +1,6 @@
 /* --- 3D Vinyl Crate digging (Beta) crate.js --- */
 import * as THREE from './vendor/three.module.js';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260830-webmcp-m43';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260830-webmcp-m44';
 
 diagnostics.record('runtime', 'crate_module_loaded', { build_version: WEBMCP_BUILD_VERSION });
 
@@ -1206,6 +1206,52 @@ function manageCrateRecord(recordId, action) {
   });
 }
 
+function startCheckoutFromAgent() {
+  const view = showMyCrateView();
+  if (!view.ok) return view;
+
+  const checkoutSummary = getCheckoutSummary();
+  const trigger = [
+    document.getElementById('panel-checkout-btn'),
+    document.getElementById('checkout-btn')
+  ].find(button => button && !button.disabled && !button.classList.contains('hidden'));
+
+  if (!trigger) {
+    return {
+      ok: false,
+      ...checkoutSummary,
+      view: 'my_crate',
+      error: {
+        code: 'CHECKOUT_CONTROL_UNAVAILABLE',
+        message: 'The visible BUY CRATE control is unavailable.'
+      }
+    };
+  }
+
+  diagnostics.record('ui', 'checkout_trigger_activated', {
+    source: 'agent',
+    trigger: trigger.id,
+    cart_count: checkoutSummary.cart_count,
+    total_cents: checkoutSummary.total_cents
+  }, { snapshot: true });
+
+  // Use the same visible control and click handler as a human interaction.
+  // The handler creates the Lemon session and redirects; it never completes
+  // the purchase itself.
+  trigger.click();
+
+  return {
+    ok: true,
+    ...checkoutSummary,
+    view: 'my_crate',
+    status: 'redirecting',
+    checkout_started: true,
+    purchase_started: false,
+    human_confirmation_required: false,
+    next_step: 'Complete the purchase on the Lemon checkout page.'
+  };
+}
+
 function publishCrateApi() {
   const api = {
     status: () => ({
@@ -1270,6 +1316,7 @@ function publishCrateApi() {
     manageCrate: manageCrateRecord,
     showMyCrate: showMyCrateView,
     showMainCrate: showMainCrateView,
+    startCheckout: startCheckoutFromAgent,
     prepareCheckout: () => {
       const view = showMyCrateView();
       if (!view.ok) return view;
@@ -2233,7 +2280,12 @@ function initUI() {
   );
 
   const handleCheckout = async triggerButton => {
-    if (checkoutInFlight) return;
+    if (checkoutInFlight) {
+      return {
+        ok: false,
+        error: { code: 'CHECKOUT_IN_FLIGHT', message: 'A checkout request is already in progress.' }
+      };
+    }
 
     const localItems = readLocalCrateItems();
     const validItems = localItems.map(findMasterCatalogItem).filter(Boolean);
@@ -2307,8 +2359,22 @@ function initUI() {
           }),
           keepalive: true
         }).catch(() => {});
+        diagnostics.record('ui', 'checkout_redirect_started', {
+          source: triggerButton.id,
+          cart_count: validItems.length,
+          total_cents: sumCents,
+          destination: 'lemon_checkout'
+        }, { snapshot: true });
         pauseAudio();
         window.location.href = data.url;
+        return {
+          ok: true,
+          status: 'redirecting',
+          checkout_started: true,
+          purchase_started: false,
+          cart_count: validItems.length,
+          total_cents: sumCents
+        };
       } else {
         throw new Error("Invalid response payload");
       }
@@ -2318,11 +2384,23 @@ function initUI() {
       triggerButton.innerHTML = originalContent;
       checkoutInFlight = false;
       updateUIControlsState();
+      return {
+        ok: false,
+        error: { code: 'CHECKOUT_FAILED', message: String(err?.message || 'Please try again.') }
+      };
     }
   };
 
   checkoutTriggers.forEach(button => {
-    button.addEventListener('click', () => handleCheckout(button));
+    button.addEventListener('click', () => {
+      const summary = getCheckoutSummary();
+      diagnostics.record('ui', 'checkout_trigger_clicked', {
+        source: button.id,
+        cart_count: summary.cart_count,
+        total_cents: summary.total_cents
+      }, { snapshot: true });
+      void handleCheckout(button);
+    });
   });
 
   // Handle browser back-forward cache pageshow reload to restore checkout button state
