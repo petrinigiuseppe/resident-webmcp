@@ -15,8 +15,8 @@ import {
   getAgentStatusText,
   isPassiveAgentStatus,
   resolveAgentOperation
-} from './agent-state.js?v=20260829-webmcp-m41';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260829-webmcp-m41';
+} from './agent-state.js?v=20260830-webmcp-m43';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260830-webmcp-m43';
 
 const MAX_TOOL_OUTPUT_RECORDS = 12;
 const ACTIVE_STATES = new Set(['loading', 'active', 'busy', 'standby']);
@@ -454,10 +454,10 @@ function trimText(value, max = 400) {
   return String(value ?? '').trim().slice(0, max);
 }
 
-function armBusy(text) {
+function armBusy(text, detail = {}) {
   activityDepth += 1;
   if (activityDepth === 1 && agentState !== 'override') {
-    setAgentState('busy', { text });
+    setAgentState('busy', { text, ...detail });
   }
 }
 
@@ -468,11 +468,11 @@ function releaseBusy() {
   }
 }
 
-async function withAgentActivity(text, work) {
+async function withAgentActivity(text, work, detail = {}) {
   const sessionResult = await ensureAgentSession(text);
   if (sessionResult?.ok === false) return sessionResult;
 
-  armBusy(text);
+  armBusy(text, detail);
   try {
     return await work();
   } finally {
@@ -1028,6 +1028,26 @@ function searchCatalog(query, maxResults = MAX_TOOL_OUTPUT_RECORDS) {
     .map(getItemSummary);
 }
 
+function normalizeCatalogSearchText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function resolveSearchNavigationMode(query, results, requestedMode = 'auto') {
+  const normalizedMode = trimText(requestedMode, 20).toLowerCase() || 'auto';
+  if (normalizedMode === 'direct' || normalizedMode === 'digging') return normalizedMode;
+  if (normalizedMode !== 'auto') return null;
+
+  const normalizedQuery = normalizeCatalogSearchText(query);
+  const exactTitle = results.some(result => (
+    normalizeCatalogSearchText(result?.title) === normalizedQuery
+  ));
+  return exactTitle || results.length <= 1 ? 'direct' : 'digging';
+}
+
 function findItem(recordId) {
   const normalized = trimText(recordId, 160);
   if (!normalized) return null;
@@ -1143,11 +1163,12 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   await registerTool(modelContext, {
     name: 'sort_catalog',
     title: 'Sort crate by latest, most popular or oldest',
-    description: 'Changes the visible crate ordering without text search. Use sort=popular when the user asks for most popular or best-selling releases, and sort=oldest when the user asks for the oldest or earliest releases. Use sort=latest to restore the curated latest order: Ocean\'s Groove is intentionally pinned first as the current featured release even though its archival release date is older.',
+    description: 'Changes the visible crate ordering without text search and returns both edges of the sorted list. Use sort=popular for most popular/best-selling releases, sort=oldest for oldest/earliest releases, and sort=latest to restore the curated latest order. Use focus=first for the oldest or most popular release, and focus=last for the least popular release. The physical stack stays stable during an agent sort so a later focus can raise the existing sleeve instead of refreshing the crate.',
     inputSchema: {
       type: 'object',
       properties: {
-        sort: { type: 'string', enum: ['latest', 'popular', 'oldest'] }
+        sort: { type: 'string', enum: ['latest', 'popular', 'oldest'] },
+        focus: { type: 'string', enum: ['none', 'first', 'last'] }
       },
       required: ['sort'],
       additionalProperties: false
@@ -1159,8 +1180,57 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
         if (!['latest', 'popular', 'oldest'].includes(sort)) {
           return resultError('INVALID_SORT', 'sort must be latest, popular, or oldest.');
         }
-        return api.setCatalogSort?.(sort)
+        const focus = trimText(input.focus, 20).toLowerCase() || 'none';
+        if (!['none', 'first', 'last'].includes(focus)) {
+          return resultError('INVALID_SORT_FOCUS', 'focus must be none, first, or last.');
+        }
+        const sorted = api.setCatalogSort?.(sort, { preservePhysicalOrder: true })
           || resultError('CATALOG_SORT_UNAVAILABLE', 'The catalog sort controls are not available.');
+        if (!sorted.ok || focus === 'none') return sorted;
+
+        const edgeRecord = focus === 'last' ? sorted.last_record : sorted.first_record;
+        if (!edgeRecord?.record_id) return sorted;
+        const focused = api.focusRecord(edgeRecord.record_id);
+        return {
+          ...sorted,
+          focus,
+          focused_record: focused?.ok ? focused.record : null,
+          focus_index: focused?.ok ? focused.index ?? null : null
+        };
+      });
+    }
+  });
+
+  await registerTool(modelContext, {
+    name: 'browse_catalog',
+    title: 'Browse releases one by one',
+    description: 'Navigates the visible Shop crate to the next or previous releases and opens the final sleeve in the existing Song sidebar. Use this for browse, next, previous, or go through the releases; it is navigation, not Song DNA matching. Repeat the tool or set steps up to 12 to move through more than one release.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        direction: { type: 'string', enum: ['next', 'previous'] },
+        steps: { type: 'integer', minimum: 1, maximum: 12 },
+        start_record_id: { type: 'string', maxLength: 160 }
+      },
+      required: ['direction'],
+      additionalProperties: false
+    },
+    annotations: uiMutation,
+    async execute(input = {}) {
+      return withAgentActivity('Browsing the crate', async () => {
+        const direction = trimText(input.direction, 20).toLowerCase();
+        const steps = Number.isInteger(input.steps) ? input.steps : 1;
+        if (!['next', 'previous'].includes(direction)) {
+          return resultError('INVALID_BROWSE_DIRECTION', 'direction must be next or previous.');
+        }
+        if (steps < 1 || steps > 12) {
+          return resultError('INVALID_BROWSE_STEPS', 'steps must be an integer between 1 and 12.');
+        }
+        return api.browseCatalog?.({
+          direction,
+          steps,
+          start_record_id: trimText(input.start_record_id, 160)
+        }) || resultError('CATALOG_BROWSE_UNAVAILABLE', 'The catalog browse control is not available.');
       });
     }
   });
@@ -1168,36 +1238,89 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   await registerTool(modelContext, {
     name: 'search_catalog',
     title: 'Search visible catalog',
-    description: 'Searches the existing crate search surface by release title, artist or curated release category (Original by Seph, Remixes, Edits or Mixed release), updates the visible crate, and opens the first match in the existing Song sidebar. Use dig_by_descriptor for metadata DNA matching.',
+    description: 'Searches the existing crate surface by release title, artist or curated release category (Original by Seph, Remixes, Edits or Mixed release), then opens the first match in the existing Song sidebar. Use navigation=digging for a bounded, real sleeve-by-sleeve reveal; auto uses direct focus for an exact title and digging for broader queries. Use navigation=direct when speed matters. Use dig_by_descriptor for metadata DNA matching.',
     inputSchema: {
       type: 'object',
       properties: {
         query: { type: 'string', minLength: 1, maxLength: 200 },
-        max_results: { type: 'integer', minimum: 1, maximum: 24 }
+        max_results: { type: 'integer', minimum: 1, maximum: 24 },
+        navigation: { type: 'string', enum: ['auto', 'direct', 'digging'] },
+        max_steps: { type: 'integer', minimum: 1, maximum: 12 }
       },
       required: ['query'],
       additionalProperties: false
     },
     annotations: uiMutation,
     async execute(input = {}) {
-      return withAgentActivity('Browsing the crate', async () => {
-        const query = trimText(input.query, 200);
-        if (!query) return resultError('INVALID_QUERY', 'A non-empty catalog query is required.');
-        const results = searchCatalog(query, input.max_results);
-        api.setSearchQuery(query);
-        const sidebarFocus = results.length > 0
-          ? (api.openRecordDetails?.(results[0].record_id) || api.focusRecord(results[0].record_id))
-          : null;
+      const query = trimText(input.query, 200);
+      if (!query) return resultError('INVALID_QUERY', 'A non-empty catalog query is required.');
+      const results = searchCatalog(query, input.max_results);
+      const navigationMode = resolveSearchNavigationMode(query, results, input.navigation);
+      if (!navigationMode) {
+        return resultError('INVALID_NAVIGATION_MODE', 'navigation must be auto, direct, or digging.');
+      }
+
+      const activityText = navigationMode === 'digging'
+        ? 'Digging through the crate'
+        : 'Searching the crate';
+      const activityDetail = navigationMode === 'digging'
+        ? { navigation_mode: 'targeted' }
+        : {};
+
+      return withAgentActivity(activityText, async () => {
+        const targetId = results[0]?.record_id || null;
+        let navigation = {
+          mode: 'direct',
+          target_record_id: targetId,
+          target_distance: 0,
+          max_steps: null,
+          steps: 0,
+          reached_target: false,
+          browsed_record_ids: [],
+          browsed_records: []
+        };
+        let sidebarFocus = null;
+
+        if (navigationMode === 'digging' && targetId) {
+          const maxSteps = input.max_steps === undefined ? 4 : Number(input.max_steps);
+          if (!Number.isInteger(maxSteps) || maxSteps < 1 || maxSteps > 12) {
+            return resultError('INVALID_BROWSE_STEPS', 'max_steps must be an integer between 1 and 12.');
+          }
+          const navigated = await api.browseToRecord?.(targetId, { maxSteps });
+          if (!navigated?.ok) {
+            return {
+              ok: false,
+              query,
+              search_scope: 'title_and_artist',
+              results,
+              result_count: results.length,
+              navigation: navigated?.navigation || navigation,
+              error: navigated?.error || { code: 'CATALOG_BROWSE_UNAVAILABLE', message: 'The catalog browse control is not available.' }
+            };
+          }
+          navigation = navigated.navigation || navigation;
+          api.setSearchQuery(query, { preservePhysicalOrder: true });
+          sidebarFocus = api.openRecordDetails?.(targetId) || api.focusRecord(targetId);
+        } else {
+          api.setSearchQuery(query);
+          sidebarFocus = targetId
+            ? (api.openRecordDetails?.(targetId) || api.focusRecord(targetId))
+            : null;
+          navigation.reached_target = Boolean(sidebarFocus?.ok);
+        }
+
         return {
           ok: true,
           query,
           search_scope: 'title_and_artist',
           results,
           result_count: results.length,
+          navigation,
+          navigation_mode: navigationMode,
           sidebar_updated: Boolean(sidebarFocus?.ok),
-          sidebar_record_id: sidebarFocus?.ok ? results[0].record_id : null
+          sidebar_record_id: sidebarFocus?.ok ? targetId : null
         };
-      });
+      }, activityDetail);
     }
   });
 
@@ -1484,12 +1607,13 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   toolRegistrationComplete = true;
   document.documentElement.dataset.webmcp = 'ready';
   dispatch('seph-webmcp-ready', {
-    tool_count: 17,
+    tool_count: 18,
     model_context_source: modelContextSource,
     tools: [
       'start_curator_session',
       'get_collection_stats',
       'sort_catalog',
+      'browse_catalog',
       'search_catalog',
       'dig_by_descriptor',
       'focus_records',

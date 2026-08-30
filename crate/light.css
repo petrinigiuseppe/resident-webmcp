@@ -172,24 +172,55 @@
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06) !important;
   }
 
+  .cover-thumbnail-wrapper {
+    background:
+      radial-gradient(circle at 50% 50%, rgba(23, 107, 42, 0.18) 0 18%, rgba(23, 107, 42, 0.07) 19% 32%, transparent 33%),
+      linear-gradient(145deg, #f0f0f2 0%, #d8d8dc 48%, #ececef 100%);
+    border-color: rgba(0, 0, 0, 0.12);
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.08);
+  }
+
+  html[data-local-preview="true"] .cover-thumbnail-wrapper::before {
+    color: rgba(29, 29, 31, 0.7);
+  }
+
+  html[data-local-preview="true"] .player-cover-link::before {
+    background:
+      radial-gradient(circle at 50% 50%, rgba(23, 107, 42, 0.2) 0 18%, rgba(23, 107, 42, 0.08) 19% 32%, transparent 33%),
+      linear-gradient(145deg, #f0f0f2 0%, #d8d8dc 48%, #ececef 100%);
+    color: rgba(29, 29, 31, 0.7);
+  }
+
   .player-cover-link:hover {
     border-color: rgba(0, 0, 0, 0.3) !important;
   }
 
   .play-btn {
-    background: rgba(0, 0, 0, 0.05) !important;
-    border-color: rgba(0, 0, 0, 0.12) !important;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05) !important;
+    background: rgba(255, 255, 255, 0.62) !important;
+    border-color: rgba(0, 0, 0, 0.18) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
   }
 
   .play-btn:hover {
-    background: rgba(0, 0, 0, 0.09) !important;
-    border-color: rgba(0, 0, 0, 0.25) !important;
+    background: rgba(255, 255, 255, 0.84) !important;
+    border-color: rgba(0, 0, 0, 0.3) !important;
   }
 
   .play-btn svg {
     fill: #1d1d1f !important;
     filter: none !important;
+  }
+
+  .custom-player .play-btn {
+    background: transparent !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
+  }
+
+  .custom-player .play-btn:hover,
+  .custom-player .play-btn:focus-visible {
+    background: rgba(0, 0, 0, 0.14) !important;
+    border-color: rgba(0, 0, 0, 0.28) !important;
   }
 
   .agent-mode-hud {
@@ -651,4 +682,184 @@
   .spinner {
     border-color: rgba(0, 0, 0, 0.1) !important;
     border-top-color: #1d1d1f !important;
+  }
+
+  /* Light mode keeps the same hierarchy: green belongs to the action, while
+     price remains neutral and readable on the pale surface. */
+  .price-tag {
+    color: #1d1d1f !important;
+    background: rgba(0, 0, 0, 0.04) !important;
+    border-color: rgba(0, 0, 0, 0.14) !important;
+  }
+
+  .buy-button-price {
+    color: #ffffff !important;
+    opacity: 0.96 !important;
+  }
+
+  .buy-button.in-crate {
+    background: rgba(23, 107, 42, 0.05) !important;
+  }
+
+  .buy-button:not(.in-crate) {
+    background: #1d1d1f !important;
+    border-color: #1d1d1f !important;
+    color: #ffffff !important;
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.16) !important;
+  }
+
+  .buy-button:not(.in-crate):hover {
+    background: #000000 !important;
+    border-color: #000000 !important;
+    color: #ffffff !important;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22) !important;
+  }
+
+  .global-player-host .custom-player.is-floating {
+    background: rgba(255, 255, 255, 0.92) !important;
+    border-color: rgba(0, 0, 0, 0.1) !important;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.1) !important;
+  }
+
+  .custom-player .play-btn {
+    background: rgba(255, 255, 255, 0.62) !important;
+  }
+
+  /* The release cover is the visible transport surface in light mode; keep
+     the authoritative play button as a transparent interaction layer. */
+  .custom-player .play-btn {
+    background: transparent !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
+  }
+
+  .custom-player .play-btn:hover,
+  .custom-player .play-btn:focus-visible {
+    background: rgba(0, 0, 0, 0.14) !important;
+    border-color: rgba(0, 0, 0, 0.28) !important;
+  }
+
+  .agent-mode-cover {
+    opacity: 0.16;
+    filter: saturate(0.72) contrast(0.92) blur(1.5px);
+    mix-blend-mode: multiply;
+  }
+
+  .agent-mode-hud:hover .agent-mode-cover,
+  .agent-mode-hud:focus-within .agent-mode-cover {
+    opacity: 0.22;
+    filter: saturate(0.8) contrast(0.96) blur(1px);
+  }
+
+  .agent-mode-play-btn {
+    border-color: rgba(0, 0, 0, 0.18);
+    background: rgba(255, 255, 255, 0.82);
+    color: #1d1d1f;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+  }
+
+  .agent-mode-play-btn:hover,
+  .agent-mode-play-btn:focus-visible {
+    background: rgba(255, 255, 255, 0.96);
+  }
+
+  /* Keep the panel sheet on the same 20px surface language as the tracklist
+     and purchase controls, while clipping the blurred surface cleanly at its
+     rounded top edge. */
+  @media (max-width: 1023px) {
+    .details-panel {
+      border-radius: var(--crate-surface-radius) var(--crate-surface-radius) 0 0 !important;
+      overflow: hidden;
+    }
+
+    .drag-handle-pill {
+      background-color: rgba(29, 29, 31, 0.28) !important;
+      border-radius: 999px !important;
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.18) !important;
+    }
+
+    .drag-handle-container:hover .drag-handle-pill,
+    .drag-handle-container:active .drag-handle-pill {
+      background-color: rgba(29, 29, 31, 0.46) !important;
+    }
+  }
+
+  /* Match the dark theme's quiet search edge. The light surface should read
+     as a soft pill, not as a hard outlined input. */
+  .search-pill,
+  .search-pill.collapsed,
+  .search-pill.search-active {
+    border-color: rgba(0, 0, 0, 0.08) !important;
+  }
+
+  .search-pill:hover,
+  .search-pill.collapsed:hover,
+  .search-pill:focus-within {
+    border-color: rgba(0, 0, 0, 0.14) !important;
+  }
+
+  .search-pill.search-active {
+    border-color: rgba(0, 0, 0, 0.16) !important;
+    box-shadow: 0 0 14px rgba(0, 0, 0, 0.05), 0 8px 32px 0 rgba(0, 0, 0, 0.06) !important;
+  }
+
+  /* The image itself is the transport affordance. Remove both the cover
+     chrome and the translucent play-button plate; keep only the icon and a
+     visible keyboard focus ring. */
+  .custom-player .player-cover-link {
+    border-color: transparent !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  .custom-player .player-cover-link:hover {
+    border-color: transparent !important;
+    box-shadow: none !important;
+    transform: none !important;
+  }
+
+  .custom-player .play-btn {
+    width: 44px !important;
+    height: 44px !important;
+    margin-left: -52px !important;
+    background: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  .custom-player .play-btn:hover {
+    background: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .custom-player .play-btn:focus-visible {
+    background: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    outline: 2px solid currentColor !important;
+    outline-offset: 2px;
+  }
+
+  .custom-player .player-play-overlay {
+    background: transparent !important;
+  }
+
+  .global-player-host .custom-player.is-floating .play-btn {
+    width: 32px !important;
+    height: 32px !important;
+    margin-left: -38px !important;
+  }
+
+  /* Use the same high-contrast transport mark in light mode: the dark keyline
+     keeps the white glyph readable over pale artwork without adding a plate. */
+  .custom-player .play-btn svg {
+    fill: #ffffff !important;
+    stroke: rgba(0, 0, 0, 0.9) !important;
+    stroke-width: 1.4px;
+    stroke-linejoin: round;
+    paint-order: stroke fill;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.82)) !important;
   }

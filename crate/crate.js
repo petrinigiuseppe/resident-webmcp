@@ -1,6 +1,6 @@
 /* --- 3D Vinyl Crate digging (Beta) crate.js --- */
 import * as THREE from './vendor/three.module.js';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260829-webmcp-m41';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260830-webmcp-m43';
 
 diagnostics.record('runtime', 'crate_module_loaded', { build_version: WEBMCP_BUILD_VERSION });
 
@@ -76,11 +76,13 @@ let isUserCrateViewActive = false;
 let userActiveIndex = 0;
 let userIsSelected = false;
 let hasInteracted = false;
+let checkoutInFlight = false;
 
 // Agent-native visual state. WebMCP owns the state transition; the renderer
 // only responds to it so the normal human interaction path stays intact.
 let agentVisualState = 'human';
 let agentVisualOperation = 'human';
+let agentVisualNavigationMode = 'preview';
 let agentFocusRecordIds = new Set();
 let agentFocusRevision = 0;
 let baseSpotLightIntensity = 2.5;
@@ -95,7 +97,9 @@ function isAgentNavigationOperationActive() {
 }
 
 function isAgentNavigationPreviewActive() {
-  return isAgentNavigationOperationActive() && !isUserCrateViewActive;
+  return isAgentNavigationOperationActive()
+    && agentVisualNavigationMode !== 'targeted'
+    && !isUserCrateViewActive;
 }
 
 // The agent frame is projected from the actual crate silhouette instead of
@@ -270,6 +274,7 @@ window.addEventListener('seph-agent-state', event => {
   const nextState = event.detail?.state;
   if (nextState) agentVisualState = nextState;
   agentVisualOperation = event.detail?.operation || 'human';
+  agentVisualNavigationMode = event.detail?.navigation_mode || 'preview';
   const helper = document.getElementById('interaction-helper');
   const humanSurface = agentVisualState === 'human' || agentVisualState === 'override';
   if (!humanSurface) {
@@ -281,10 +286,10 @@ window.addEventListener('seph-agent-state', event => {
   } else {
     resetInactivityTimer();
   }
-  if (isAgentNavigationOperationActive()) {
+  if (isAgentNavigationPreviewActive()) {
     startAgentDigPreview();
   } else {
-    stopAgentDigPreview();
+    stopAgentDigPreview({ restore: false });
   }
 });
 
@@ -544,7 +549,65 @@ function compareCatalogItems(a, b) {
   return dateB - dateA;
 }
 
-function filterAndSortCatalog(skipApply = false, { preservePlayer = true } = {}) {
+function getRecordStackIndex(recordId) {
+  const normalizedId = String(recordId || '').trim();
+  if (!normalizedId) return -1;
+  const record = recordsData.find((entry, index) => {
+    if (String(entry?.recordId || '').trim() !== normalizedId) return false;
+    if (!Number.isFinite(Number(entry.stackIndex))) entry.stackIndex = index;
+    return true;
+  });
+  if (!record) return -1;
+  const fallbackIndex = recordsData.indexOf(record);
+  return Number.isFinite(Number(record.stackIndex)) ? Number(record.stackIndex) : fallbackIndex;
+}
+
+function preservePhysicalRecordOrder(nextCatalog) {
+  if (!Array.isArray(nextCatalog) || nextCatalog.length === 0 || recordsData.length === 0 || nextCatalog.length > recordsData.length) {
+    return false;
+  }
+
+  const slotsByRecordId = new Map();
+  recordsData.forEach((record, index) => {
+    const recordId = String(record?.recordId || '').trim();
+    if (!recordId || slotsByRecordId.has(recordId)) return;
+    if (!Number.isFinite(Number(record.stackIndex))) record.stackIndex = index;
+    slotsByRecordId.set(recordId, record);
+  });
+
+  const nextRecordIds = nextCatalog.map(getCrateRecordId);
+  if (new Set(nextRecordIds).size !== nextRecordIds.length) return false;
+  if (nextRecordIds.some(recordId => !slotsByRecordId.has(recordId))) return false;
+
+  const visibleRecordIds = new Set(nextRecordIds);
+  const visibleRecords = nextRecordIds.map(recordId => slotsByRecordId.get(recordId));
+  const hiddenRecords = recordsData
+    .filter(record => !visibleRecordIds.has(String(record?.recordId || '').trim()))
+    .sort((a, b) => Number(a.stackIndex) - Number(b.stackIndex));
+
+  recordsData = [...visibleRecords, ...hiddenRecords].map((record, logicalIndex) => {
+    const recordId = String(record?.recordId || '').trim();
+    record.mesh.userData = {
+      ...record.mesh.userData,
+      index: logicalIndex,
+      record_id: recordId,
+      stack_index: record.stackIndex
+    };
+    record.mesh.visible = logicalIndex < nextCatalog.length;
+    return record;
+  });
+  window.recordsData = recordsData;
+  syncAgentFocusVisuals();
+  return true;
+}
+
+function filterAndSortCatalog(skipApply = false, {
+  preservePlayer = true,
+  preservePhysicalOrder = false
+} = {}) {
+  const previousCatalog = catalog;
+  const previousActiveItem = !isUserCrateViewActive ? previousCatalog[activeIndex] : null;
+  const previousActiveRecordId = previousActiveItem ? getCrateRecordId(previousActiveItem) : null;
   const localItems = readLocalCrateItems();
   let workingList = getDigitalCatalog().filter(item => {
     return !localItems.includes(getCrateRecordId(item));
@@ -565,13 +628,27 @@ function filterAndSortCatalog(skipApply = false, { preservePlayer = true } = {})
   catalog = workingList;
   window.catalog = catalog;
 
+  let physicalOrderPreserved = false;
   if (!skipApply) {
-    applyCatalogUpdates({ preservePlayer });
+    physicalOrderPreserved = preservePhysicalOrder && preservePhysicalRecordOrder(catalog);
+    if (physicalOrderPreserved) {
+      const preservedIndex = previousActiveRecordId
+        ? catalog.findIndex(item => getCrateRecordId(item) === previousActiveRecordId)
+        : -1;
+      activeIndex = preservedIndex >= 0
+        ? preservedIndex
+        : Math.max(0, Math.min(activeIndex, catalog.length - 1));
+      if (isSelected && !isUserCrateViewActive) showRecordDetails(activeIndex);
+      updateRecordHeights();
+    } else {
+      applyCatalogUpdates({ preservePlayer });
+    }
   }
   rebuildUserCrateRecords();
+  return { physical_order_preserved: physicalOrderPreserved };
 }
 
-function setCatalogSort(sort) {
+function setCatalogSort(sort, { preservePhysicalOrder = false } = {}) {
   const normalized = String(sort || '').trim().toLowerCase();
   if (!['latest', 'popular', 'oldest'].includes(normalized)) {
     return {
@@ -587,12 +664,17 @@ function setCatalogSort(sort) {
   if (latestBtn) latestBtn.classList.toggle('active', currentFilter === 'latest');
   if (popularBtn) popularBtn.classList.toggle('active', currentFilter === 'popular');
   if (filterPill) filterPill.classList.toggle('active-popular', currentFilter === 'popular');
-  filterAndSortCatalog(false, { preservePlayer: true });
+  const update = filterAndSortCatalog(false, {
+    preservePlayer: true,
+    preservePhysicalOrder
+  });
   return {
     ok: true,
     sort: currentFilter,
     visible_count: catalog.length,
-    first_record: catalog[0] ? summarizeCrateItem(catalog[0]) : null
+    physical_order_preserved: Boolean(update?.physical_order_preserved),
+    first_record: catalog[0] ? summarizeCrateItem(catalog[0]) : null,
+    last_record: catalog.length > 0 ? summarizeCrateItem(catalog[catalog.length - 1]) : null
   };
 }
 
@@ -677,7 +759,7 @@ function summarizeCrateItem(item) {
   };
 }
 
-function setSearchQuery(query) {
+function setSearchQuery(query, { preservePhysicalOrder = false } = {}) {
   const normalized = String(query || '').toLowerCase().trim().slice(0, 200);
   currentSearchQuery = normalized;
 
@@ -686,7 +768,7 @@ function setSearchQuery(query) {
   if (searchInput && searchInput.value !== normalized) searchInput.value = normalized;
   if (clearBtn) clearBtn.classList.toggle('hidden', !normalized);
 
-  filterAndSortCatalog();
+  filterAndSortCatalog(false, { preservePhysicalOrder });
   diagnostics.record('ui', 'catalog_search', {
     query: normalized,
     visible_count: catalog.length
@@ -770,7 +852,11 @@ function focusRecordById(recordId) {
   // so the preview cleanup does not restore and close the previous sidebar.
   if (isAgentNavigationOperationActive()) agentFocusRevision += 1;
 
-  const prevIndex = isUserCrateViewActive ? userActiveIndex : activeIndex;
+  const previousShopRecordId = !isUserCrateViewActive && catalog[activeIndex]
+    ? getCrateRecordId(catalog[activeIndex])
+    : '';
+  const previousShopIndex = !isUserCrateViewActive ? activeIndex : -1;
+  const previousStackIndex = getRecordStackIndex(previousShopRecordId);
   isUserCrateViewActive = false;
   globalCamXOffset = 0;
   const shopBtn = document.getElementById('view-shop-btn');
@@ -778,8 +864,13 @@ function focusRecordById(recordId) {
   if (shopBtn) shopBtn.classList.add('active');
   if (myCrateBtn) myCrateBtn.classList.remove('active');
   selectRecord(visibleIndex);
-  if (visibleIndex !== prevIndex && !isAgentNavigationPreviewActive()) {
-    playCrateNavigationTick(visibleIndex >= prevIndex ? 1 : -1, { agent: agentVisualState !== 'human' });
+  const focusedStackIndex = getRecordStackIndex(normalizedId);
+  if ((focusedStackIndex !== previousStackIndex || visibleIndex !== previousShopIndex)
+    && !isAgentNavigationPreviewActive()) {
+    const direction = focusedStackIndex >= 0 && previousStackIndex >= 0
+      ? (focusedStackIndex >= previousStackIndex ? 1 : -1)
+      : (visibleIndex >= previousShopIndex ? 1 : -1);
+    playCrateNavigationTick(direction, { agent: agentVisualState !== 'human' });
   }
   return { ok: true, record: summarizeCrateItem(item), view: 'shop', index: visibleIndex };
 }
@@ -826,7 +917,7 @@ function showMyCrateView() {
   return finish({ ok: true, view: 'my_crate', cart_count: checkoutSummary.cart_count });
 }
 
-function showMainCrateView() {
+function showMainCrateView({ preservePhysicalOrder = false } = {}) {
   const finish = result => {
     diagnostics.record('ui', 'crate_view', {
       view: result?.view || 'shop',
@@ -853,7 +944,10 @@ function showMainCrateView() {
     if (searchInput) searchInput.value = '';
     if (clearBtn) clearBtn.classList.add('hidden');
   }
-  filterAndSortCatalog(false, { preservePlayer: true });
+  filterAndSortCatalog(false, {
+    preservePlayer: true,
+    preservePhysicalOrder
+  });
   deselectRecord({ preservePlayer: true });
   updateUIControlsState();
   return finish({
@@ -863,6 +957,176 @@ function showMainCrateView() {
     visible_count: catalog.length,
     player_preserved: Boolean(currentPlayingTrackId)
   });
+}
+
+function browseCatalog({ direction = 'next', steps = 1, start_record_id = '' } = {}) {
+  const normalizedDirection = String(direction || '').trim().toLowerCase();
+  if (!['next', 'previous'].includes(normalizedDirection)) {
+    return {
+      ok: false,
+      error: { code: 'INVALID_BROWSE_DIRECTION', message: 'direction must be next or previous.' }
+    };
+  }
+
+  const requestedSteps = Number(steps);
+  if (!Number.isInteger(requestedSteps) || requestedSteps < 1 || requestedSteps > 12) {
+    return {
+      ok: false,
+      error: { code: 'INVALID_BROWSE_STEPS', message: 'steps must be an integer between 1 and 12.' }
+    };
+  }
+
+  if (isUserCrateViewActive || currentSearchQuery) {
+    showMainCrateView({ preservePhysicalOrder: true });
+  }
+  if (catalog.length === 0) {
+    return {
+      ok: false,
+      error: { code: 'EMPTY_CATALOG', message: 'No shop records are available to browse.' }
+    };
+  }
+
+  const requestedStart = String(start_record_id || '').trim();
+  let currentIndex = requestedStart
+    ? catalog.findIndex(item => getCrateRecordId(item) === requestedStart)
+    : activeIndex;
+  if (requestedStart && currentIndex < 0) {
+    return {
+      ok: false,
+      error: { code: 'RECORD_NOT_VISIBLE', message: 'The requested browse starting record is not visible in the shop.' }
+    };
+  }
+  currentIndex = Math.max(0, Math.min(catalog.length - 1, currentIndex));
+
+  const delta = normalizedDirection === 'next' ? 1 : -1;
+  const browsedRecords = [];
+  for (let step = 0; step < requestedSteps; step += 1) {
+    const nextIndex = Math.max(0, Math.min(catalog.length - 1, currentIndex + delta));
+    if (nextIndex === currentIndex) break;
+    currentIndex = nextIndex;
+    const item = catalog[currentIndex];
+    browsedRecords.push(summarizeCrateItem(item));
+    playCrateNavigationTick(delta, { agent: agentVisualState !== 'human' });
+  }
+
+  activeIndex = currentIndex;
+  selectRecord(activeIndex);
+  const currentRecord = catalog[activeIndex];
+  return {
+    ok: true,
+    view: 'shop',
+    sort: currentFilter,
+    direction: normalizedDirection,
+    requested_steps: requestedSteps,
+    steps: browsedRecords.length,
+    reached_boundary: browsedRecords.length < requestedSteps,
+    browsed_record_ids: browsedRecords.map(item => item.record_id),
+    browsed_records: browsedRecords,
+    index: activeIndex,
+    current_record: currentRecord ? summarizeCrateItem(currentRecord) : null
+  };
+}
+
+async function browseToRecord(recordId, { maxSteps = 4 } = {}) {
+  const item = findMasterCatalogItem(recordId);
+  if (!item) {
+    return {
+      ok: false,
+      error: { code: 'RECORD_NOT_FOUND', message: 'Record is not in the loaded catalog.' }
+    };
+  }
+
+  const requestedMaxSteps = Number(maxSteps);
+  if (!Number.isInteger(requestedMaxSteps) || requestedMaxSteps < 1 || requestedMaxSteps > 12) {
+    return {
+      ok: false,
+      error: { code: 'INVALID_BROWSE_STEPS', message: 'max_steps must be an integer between 1 and 12.' }
+    };
+  }
+
+  if (isUserCrateViewActive || currentSearchQuery) {
+    showMainCrateView({ preservePhysicalOrder: true });
+  }
+
+  const normalizedId = getCrateRecordId(item);
+  const targetIndex = catalog.findIndex(entry => getCrateRecordId(entry) === normalizedId);
+  if (targetIndex < 0) {
+    return {
+      ok: false,
+      error: { code: 'RECORD_NOT_VISIBLE', message: 'The target record is not visible in the Shop crate.' }
+    };
+  }
+
+  const startIndex = Math.max(0, Math.min(catalog.length - 1, activeIndex));
+  const targetDistance = Math.abs(targetIndex - startIndex);
+  const delta = targetIndex >= startIndex ? 1 : -1;
+  const direction = delta > 0 ? 'next' : 'previous';
+  const browsedRecords = [];
+
+  if (targetDistance > requestedMaxSteps) {
+    const focused = focusRecordById(normalizedId);
+    return {
+      ok: Boolean(focused?.ok),
+      record: focused?.record || summarizeCrateItem(item),
+      view: focused?.view || 'shop',
+      navigation: {
+        mode: 'direct_fallback',
+        reason: 'target_beyond_max_steps',
+        direction,
+        target_record_id: normalizedId,
+        target_distance: targetDistance,
+        max_steps: requestedMaxSteps,
+        steps: 0,
+        reached_target: Boolean(focused?.ok),
+        browsed_record_ids: [],
+        browsed_records: []
+      },
+      ...(focused?.error ? { error: focused.error } : {})
+    };
+  }
+
+  for (let step = 0; step < targetDistance; step += 1) {
+    const fromIndex = activeIndex;
+    const nextIndex = fromIndex + delta;
+    activeIndex = nextIndex;
+    selectRecord(activeIndex);
+    const nextItem = catalog[activeIndex];
+    const nextRecord = summarizeCrateItem(nextItem);
+    if (nextRecord) browsedRecords.push(nextRecord);
+    playCrateNavigationTick(delta, { agent: true, force: true });
+    diagnostics.record('ui', 'crate_navigation', {
+      source: 'agent',
+      operation: 'digging',
+      mode: 'targeted',
+      view: 'shop',
+      from_index: fromIndex,
+      to_index: nextIndex,
+      target_record_id: normalizedId
+    }, { snapshot: true });
+    if (step < targetDistance - 1) {
+      await new Promise(resolve => window.setTimeout(resolve, 145));
+    }
+  }
+
+  if (targetDistance === 0) selectRecord(targetIndex);
+  const currentRecord = catalog[targetIndex];
+  return {
+    ok: true,
+    record: summarizeCrateItem(currentRecord),
+    view: 'shop',
+    index: targetIndex,
+    navigation: {
+      mode: 'digging',
+      direction,
+      target_record_id: normalizedId,
+      target_distance: targetDistance,
+      max_steps: requestedMaxSteps,
+      steps: browsedRecords.length,
+      reached_target: true,
+      browsed_record_ids: browsedRecords.map(record => record.record_id),
+      browsed_records: browsedRecords
+    }
+  };
 }
 
 function parsePriceCents(priceText) {
@@ -971,6 +1235,8 @@ function publishCrateApi() {
     playTrack: playTrackById,
     pauseTrack: pauseAudio,
     seekTrack: seekPlayer,
+    browseCatalog,
+    browseToRecord,
     setPlayerMuted: muted => setSiteAudioEnabled(!Boolean(muted)),
     searchCatalog: (query, maxResults = 12) => {
       const normalized = String(query || '').toLowerCase().trim();
@@ -1026,7 +1292,8 @@ function applyCatalogUpdates({ preservePlayer = true } = {}) {
       // Make mesh visible and update its index pointer
       rec.mesh.visible = true;
       rec.recordId = getCrateRecordId(item);
-      rec.mesh.userData = { index: idx, record_id: rec.recordId };
+      rec.stackIndex = idx;
+      rec.mesh.userData = { index: idx, record_id: rec.recordId, stack_index: rec.stackIndex };
       syncAgentFocusVisuals();
 
       // Staggered ripple shuffle drop (idx * 25ms delay)
@@ -1955,99 +2222,117 @@ function initUI() {
     });
   }
 
-  // 3. Checkout Button Action (Cart checkout endpoint integration)
+  // 3. Checkout Button Action (Cart checkout endpoint integration). Both
+  // visible entry points delegate to this one path so the sidebar cannot
+  // create a different request or a duplicate checkout session.
   const checkoutBtn = document.getElementById('checkout-btn');
-  if (checkoutBtn) {
-    checkoutBtn.addEventListener('click', async () => {
-      const localItems = readLocalCrateItems();
-      const validItems = localItems.map(findMasterCatalogItem).filter(Boolean);
-      if (validItems.length === 0) {
-        updateUIControlsState();
-        return;
-      }
+  const panelCheckoutBtn = document.getElementById('panel-checkout-btn');
+  const checkoutTriggers = [checkoutBtn, panelCheckoutBtn].filter(Boolean);
+  const checkoutDefaultContent = new Map(
+    checkoutTriggers.map(button => [button, button.innerHTML])
+  );
 
-      checkoutBtn.disabled = true;
-      const originalContent = checkoutBtn.innerHTML;
-      checkoutBtn.innerText = "PREPARING...";
+  const handleCheckout = async triggerButton => {
+    if (checkoutInFlight) return;
 
-      try {
-        let sumCents = 0;
-        const cartLines = [];
-        const titles = [];
-        validItems.forEach(item => {
-          titles.push(item.title);
-          const digits = item.price_text.replace(/[^\d.,]/g, '').replace(',', '.');
-          const price = parseFloat(digits);
-          const priceCents = isFinite(price) ? Math.round(price * 100) : 0;
-          sumCents += priceCents;
+    const localItems = readLocalCrateItems();
+    const validItems = localItems.map(findMasterCatalogItem).filter(Boolean);
+    if (validItems.length === 0) {
+      updateUIControlsState();
+      return;
+    }
 
-          cartLines.push({
-            // The Crate sells complete releases. Per-track lines belong to the legacy shop.
-            type: "product",
-            slug: item.slug,
-            qty: 1
-          });
-        });
-
-        const firstItem = validItems[0];
-        const validSlugs = validItems.map(getCatalogProductSlug);
-        const baseSlug = getCatalogProductSlug(firstItem) || validSlugs[0];
-        
-        const params = new URLSearchParams();
-        params.set('slug', baseSlug);
-        params.set('cart_items', String(validItems.length));
-        params.set('cart_total_cents', String(sumCents));
-        params.set('cart_slugs', validSlugs.join(','));
-        params.set('cart_lines', JSON.stringify(cartLines));
-        params.set('return_to', '/');
-
-        const customName = (titles.length > 1 ? `Crate: ${titles.join(', ')}` : (firstItem ? firstItem.title : '')).slice(0, 140);
-        if (customName) {
-          params.set('custom_name', customName);
-        }
-
-        const res = await fetch(`/api/lemon-checkout?${params.toString()}`);
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.error || `HTTP ${res.status}`);
-        }
-        const data = await res.json();
-        
-        if (data && data.url) {
-          // Analytics must never hold the user on the crate after the checkout
-          // session is ready. Keep it best-effort and let the browser carry it
-          // in the background while the redirect starts immediately.
-          fetch('/api/analytics-event', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              event: 'checkout_redirect',
-              session_id: localStorage.getItem('seph_martin_session') || '',
-              item_slug: baseSlug
-            }),
-            keepalive: true
-          }).catch(() => {});
-          pauseAudio();
-          window.location.href = data.url;
-        } else {
-          throw new Error("Invalid response payload");
-        }
-      } catch (err) {
-        console.error("Checkout failed:", err);
-        showTopErrorNotification(`CHECKOUT ERROR: ${err.message || 'Please try again.'}`);
-        checkoutBtn.disabled = false;
-        checkoutBtn.innerHTML = originalContent;
-      }
+    checkoutInFlight = true;
+    checkoutTriggers.forEach(button => {
+      button.disabled = true;
+      button.setAttribute('aria-disabled', 'true');
     });
-  }
+    const originalContent = checkoutDefaultContent.get(triggerButton) || triggerButton.innerHTML;
+    triggerButton.innerText = "PREPARING...";
+
+    try {
+      let sumCents = 0;
+      const cartLines = [];
+      const titles = [];
+      validItems.forEach(item => {
+        titles.push(item.title);
+        const digits = item.price_text.replace(/[^\d.,]/g, '').replace(',', '.');
+        const price = parseFloat(digits);
+        const priceCents = isFinite(price) ? Math.round(price * 100) : 0;
+        sumCents += priceCents;
+
+        cartLines.push({
+          // The Crate sells complete releases. Per-track lines belong to the legacy shop.
+          type: "product",
+          slug: item.slug,
+          qty: 1
+        });
+      });
+
+      const firstItem = validItems[0];
+      const validSlugs = validItems.map(getCatalogProductSlug);
+      const baseSlug = getCatalogProductSlug(firstItem) || validSlugs[0];
+
+      const params = new URLSearchParams();
+      params.set('slug', baseSlug);
+      params.set('cart_items', String(validItems.length));
+      params.set('cart_total_cents', String(sumCents));
+      params.set('cart_slugs', validSlugs.join(','));
+      params.set('cart_lines', JSON.stringify(cartLines));
+      params.set('return_to', '/');
+
+      const customName = (titles.length > 1 ? `Crate: ${titles.join(', ')}` : (firstItem ? firstItem.title : '')).slice(0, 140);
+      if (customName) {
+        params.set('custom_name', customName);
+      }
+
+      const res = await fetch(`/api/lemon-checkout?${params.toString()}`);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+
+      if (data && data.url) {
+        // Analytics must never hold the user on the crate after the checkout
+        // session is ready. Keep it best-effort and let the browser carry it
+        // in the background while the redirect starts immediately.
+        fetch('/api/analytics-event', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            event: 'checkout_redirect',
+            session_id: localStorage.getItem('seph_martin_session') || '',
+            item_slug: baseSlug
+          }),
+          keepalive: true
+        }).catch(() => {});
+        pauseAudio();
+        window.location.href = data.url;
+      } else {
+        throw new Error("Invalid response payload");
+      }
+    } catch (err) {
+      console.error("Checkout failed:", err);
+      showTopErrorNotification(`CHECKOUT ERROR: ${err.message || 'Please try again.'}`);
+      triggerButton.innerHTML = originalContent;
+      checkoutInFlight = false;
+      updateUIControlsState();
+    }
+  };
+
+  checkoutTriggers.forEach(button => {
+    button.addEventListener('click', () => handleCheckout(button));
+  });
 
   // Handle browser back-forward cache pageshow reload to restore checkout button state
   window.addEventListener('pageshow', (event) => {
-    const checkoutBtn = document.getElementById('checkout-btn');
-    if (checkoutBtn) {
-      checkoutBtn.disabled = false;
-      updateUIControlsState();
-    }
+    checkoutInFlight = false;
+    checkoutTriggers.forEach(button => {
+      const defaultContent = checkoutDefaultContent.get(button);
+      if (defaultContent && button.innerHTML !== defaultContent) button.innerHTML = defaultContent;
+    });
+    updateUIControlsState();
   });
 
   function showTopErrorNotification(message) {
@@ -2783,6 +3068,7 @@ function buildRecords() {
       recordsData.push({
         mesh: sleeveMesh,
         recordId: getCrateRecordId(item),
+        stackIndex: i,
         baseZ: baseZ,
         currentYOffset: 0,
         targetYOffset: 0,
@@ -2893,6 +3179,13 @@ function updateRecordHeights() {
       rec.targetYOffset = 0;
     }
   });
+}
+
+function getActiveShopStackIndex() {
+  const activeItem = catalog[activeIndex];
+  const activeRecordId = activeItem ? getCrateRecordId(activeItem) : '';
+  const stackIndex = getRecordStackIndex(activeRecordId);
+  return stackIndex >= 0 ? stackIndex : activeIndex;
 }
 
 function stopAgentDigPreview({ restore = true } = {}) {
@@ -4047,11 +4340,13 @@ function animate() {
   const H = 0.31; // height
   const yPivot = -0.15; // bottom support axis
   const agentDiggingPreviewActive = isAgentNavigationPreviewActive();
+  const activeStackIndex = getActiveShopStackIndex();
 
   recordsData.forEach((rec, idx) => {
-    if (idx < activeIndex) {
+    const stackIndex = Number.isFinite(Number(rec.stackIndex)) ? Number(rec.stackIndex) : idx;
+    if (stackIndex < activeStackIndex) {
       rec.targetRotX = 0.40; // leaning forward (naturally resting on the front wall)
-    } else if (idx > activeIndex) {
+    } else if (stackIndex > activeStackIndex) {
       rec.targetRotX = -0.20; // leaning backward inside the stack
     } else {
       if (agentDiggingPreviewActive && idx === agentDigPreviewIndex) {
@@ -4753,6 +5048,7 @@ function updateUIControlsState() {
   const filterCompactBtn = document.getElementById('filter-compact-btn');
   const searchPill = document.getElementById('search-pill-container');
   const checkoutBtn = document.getElementById('checkout-btn');
+  const panelCheckoutBtn = document.getElementById('panel-checkout-btn');
   const viewSwitcher = document.querySelector('.view-switcher-pill');
 
   const isMobile = window.innerWidth <= 768;
@@ -4801,14 +5097,6 @@ function updateUIControlsState() {
       }
     }
     
-    // Show Buy Crate only when the visible personal crate has valid catalog lines.
-    if (checkoutBtn) {
-      if (hasPersonal) {
-        checkoutBtn.classList.remove('hidden');
-      } else {
-        checkoutBtn.classList.add('hidden');
-      }
-    }
   } else {
     // 2. Public SHOP mode controls
     if (checkoutBtn) checkoutBtn.classList.add('hidden');
@@ -4854,9 +5142,20 @@ function updateUIControlsState() {
 
   if (checkoutBtn) {
     const checkoutEnabled = isUserCrateViewActive && hasPersonal;
-    checkoutBtn.disabled = !checkoutEnabled;
-    checkoutBtn.setAttribute('aria-disabled', String(!checkoutEnabled));
+    checkoutBtn.classList.toggle('hidden', !checkoutEnabled);
+    checkoutBtn.disabled = !checkoutEnabled || checkoutInFlight;
+    checkoutBtn.setAttribute('aria-disabled', String(!checkoutEnabled || checkoutInFlight));
     checkoutBtn.title = checkoutEnabled
+      ? 'Review checkout for the records in My Crate'
+      : 'Add a record to My Crate before checkout';
+  }
+
+  if (panelCheckoutBtn) {
+    const checkoutEnabled = isUserCrateViewActive && hasPersonal;
+    panelCheckoutBtn.classList.toggle('hidden', !checkoutEnabled);
+    panelCheckoutBtn.disabled = !checkoutEnabled || checkoutInFlight;
+    panelCheckoutBtn.setAttribute('aria-disabled', String(!checkoutEnabled || checkoutInFlight));
+    panelCheckoutBtn.title = checkoutEnabled
       ? 'Review checkout for the records in My Crate'
       : 'Add a record to My Crate before checkout';
   }
@@ -4865,6 +5164,10 @@ function updateUIControlsState() {
   const totalSpan = document.getElementById('checkout-total');
   if (totalSpan) {
     totalSpan.innerText = `€${(checkoutSummary.total_cents / 100).toFixed(2)}`;
+  }
+  const panelTotalSpan = document.querySelector('.panel-checkout-total');
+  if (panelTotalSpan) {
+    panelTotalSpan.innerText = `€${(checkoutSummary.total_cents / 100).toFixed(2)}`;
   }
 }
 
