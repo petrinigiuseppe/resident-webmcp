@@ -960,10 +960,6 @@
     background: rgba(0, 0, 0, 0.1) !important;
   }
 
-  .demo-checkout-summary-note {
-    color: var(--text-secondary) !important;
-  }
-
   .demo-checkout-profile-label {
     color: #617067 !important;
   }
@@ -993,6 +989,12 @@
 
   .demo-checkout-line-meta {
     color: var(--text-dim) !important;
+  }
+
+  .demo-checkout-line-remove:hover {
+    border-color: rgba(0, 0, 0, 0.1) !important;
+    background: rgba(23, 107, 42, 0.06) !important;
+    color: #176b2a !important;
   }
 
   .demo-checkout-line-cover {

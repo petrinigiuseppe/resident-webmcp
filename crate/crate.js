@@ -1,6 +1,6 @@
 /* --- 3D Vinyl Crate digging (Beta) crate.js --- */
 import * as THREE from './vendor/three.module.js';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m51';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m52';
 
 diagnostics.record('runtime', 'crate_module_loaded', { build_version: WEBMCP_BUILD_VERSION });
 
@@ -88,8 +88,8 @@ const DEMO_PURCHASES_STORAGE_KEY = 'sm_demo_checkout_purchases_v1';
 const DEMO_ACCOUNT_DEFAULTS = Object.freeze({
   account_type: 'demo',
   display_name: 'Seph Martin',
-  email: 'seph@sephmartin.test',
-  payment_label: 'CARD',
+  email: 'music@sephmartin.com',
+  payment_label: 'VISA',
   payment_last4: '4242',
   address_line1: 'Via Roma 42',
   address_line2: '00100 Roma RM · IT'
@@ -1340,10 +1340,10 @@ function ensureDemoAccount() {
   const account = {
     ...DEMO_ACCOUNT_DEFAULTS,
     ...(existing || {}),
-    email: existing?.email === 'demo@sephmartin.test'
+    email: ['demo@sephmartin.test', 'seph@sephmartin.test'].includes(existing?.email)
       ? DEMO_ACCOUNT_DEFAULTS.email
       : (existing?.email || DEMO_ACCOUNT_DEFAULTS.email),
-    payment_label: existing?.payment_label === 'DEMO CARD'
+    payment_label: ['DEMO CARD', 'CARD'].includes(existing?.payment_label)
       ? DEMO_ACCOUNT_DEFAULTS.payment_label
       : (existing?.payment_label || DEMO_ACCOUNT_DEFAULTS.payment_label),
     address_line1: existing?.address_line1 === 'Via Demo 42'
@@ -1432,6 +1432,7 @@ function renderDemoCheckoutReview() {
     demoCheckoutSelection.forEach(item => {
       const line = document.createElement('li');
       line.className = 'demo-checkout-line';
+      line.dataset.recordId = getCrateRecordId(item);
 
       const cover = document.createElement('img');
       cover.className = 'demo-checkout-line-cover';
@@ -1461,10 +1462,26 @@ function renderDemoCheckoutReview() {
       lineContent.appendChild(meta);
       line.appendChild(lineContent);
 
+      const lineActions = document.createElement('span');
+      lineActions.className = 'demo-checkout-line-actions';
       const price = document.createElement('span');
       price.className = 'demo-checkout-line-price';
       price.textContent = formatDemoEuro(parsePriceCents(item.price_text));
-      line.appendChild(price);
+      lineActions.appendChild(price);
+
+      const removeButton = document.createElement('button');
+      removeButton.className = 'demo-checkout-line-remove';
+      removeButton.type = 'button';
+      removeButton.setAttribute('aria-label', `Remove ${item.title || 'release'} from My Crate`);
+      removeButton.title = 'Remove from My Crate';
+      removeButton.textContent = '×';
+      removeButton.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        removeDemoCheckoutLine(getCrateRecordId(item));
+      });
+      lineActions.appendChild(removeButton);
+      line.appendChild(lineActions);
       list.appendChild(line);
     });
   }
@@ -1490,6 +1507,40 @@ function renderDemoCheckoutReview() {
   if (addressLineOne) addressLineOne.textContent = account?.address_line1 || DEMO_ACCOUNT_DEFAULTS.address_line1;
   const addressLineTwo = document.getElementById('demo-checkout-address-line2');
   if (addressLineTwo) addressLineTwo.textContent = account?.address_line2 || DEMO_ACCOUNT_DEFAULTS.address_line2;
+}
+
+function removeDemoCheckoutLine(recordId) {
+  const normalizedId = String(recordId || '').trim();
+  const item = findMasterCatalogItem(normalizedId);
+  if (!item) return false;
+
+  const result = manageCrateRecord(normalizedId, 'remove');
+  if (!result?.ok) {
+    setDemoCheckoutError('THIS RELEASE COULD NOT BE REMOVED FROM MY CRATE.');
+    return false;
+  }
+
+  demoCheckoutSelection = demoCheckoutSelection.filter(
+    selectionItem => getCrateRecordId(selectionItem) !== normalizedId
+  );
+  diagnostics.record('ui', 'demo_checkout_line_removed', {
+    record_id: normalizedId,
+    cart_count: result.cart_count ?? demoCheckoutSelection.length
+  }, { snapshot: true });
+
+  if (demoCheckoutSelection.length === 0) {
+    closeDemoCheckoutModal({ reason: 'crate_empty' });
+    return true;
+  }
+
+  const view = showMyCrateView();
+  if (!view?.ok) {
+    closeDemoCheckoutModal({ reason: 'crate_empty' });
+    return true;
+  }
+  renderDemoCheckoutReview();
+  updateUIControlsState();
+  return true;
 }
 
 function openDemoCheckoutModal(items) {

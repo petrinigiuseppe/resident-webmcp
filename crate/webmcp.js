@@ -15,8 +15,8 @@ import {
   getAgentStatusText,
   isPassiveAgentStatus,
   resolveAgentOperation
-} from './agent-state.js?v=20260831-webmcp-m51';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m51';
+} from './agent-state.js?v=20260831-webmcp-m52';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m52';
 
 const MAX_TOOL_OUTPUT_RECORDS = 12;
 const ACTIVE_STATES = new Set(['loading', 'active', 'busy', 'standby']);

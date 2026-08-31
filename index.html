@@ -186,8 +186,8 @@
     .fallback-card-btn.primary-btn { border-color: #03ff00; color: #03ff00; }
   </style>
   <!-- Stylesheets -->
-  <link id="crate-stylesheet" rel="stylesheet" href="/crate/style.css?v=20260831-webmcp-m51">
-  <link id="crate-light-stylesheet" rel="stylesheet" media="(prefers-color-scheme: light)" href="/crate/light.css?v=20260831-webmcp-m51">
+  <link id="crate-stylesheet" rel="stylesheet" href="/crate/style.css?v=20260831-webmcp-m52">
+  <link id="crate-light-stylesheet" rel="stylesheet" media="(prefers-color-scheme: light)" href="/crate/light.css?v=20260831-webmcp-m52">
   <script>
     (function () {
       var root = document.documentElement;
@@ -239,7 +239,7 @@
           recoveryAttempted = true;
           recoveryTimer = window.setTimeout(function () {
             if (confirmStyles()) return;
-          stylesheet.href = '/crate/style.css?v=20260831-webmcp-m51&recovery=' + Date.now();
+          stylesheet.href = '/crate/style.css?v=20260831-webmcp-m52&recovery=' + Date.now();
           }, 80);
         }
 
@@ -553,19 +553,20 @@
               <div class="demo-checkout-profile-content">
                 <span class="demo-checkout-profile-label">ACCOUNT</span>
                 <strong id="demo-checkout-profile-name">Seph Martin</strong>
-                <span id="demo-checkout-account-email">seph@sephmartin.test</span>
+                <span id="demo-checkout-account-email">music@sephmartin.com</span>
               </div>
             </div>
             <div class="demo-checkout-profile-card demo-checkout-profile-card-payment">
               <span class="demo-checkout-profile-icon demo-checkout-card-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24" role="presentation" focusable="false">
                   <rect x="3" y="5" width="18" height="14" rx="2"></rect>
-                  <path d="M3 10h18M7 15h4"></path>
+                  <path d="M3 10h18M7 15h4M14 15h4"></path>
+                  <rect x="6.5" y="12.5" width="3.5" height="2.5" rx="0.5"></rect>
                 </svg>
               </span>
               <div class="demo-checkout-profile-content">
                 <span class="demo-checkout-profile-label">SAVED CARD</span>
-                <strong id="demo-checkout-payment">CARD ···· 4242</strong>
+                <strong id="demo-checkout-payment">VISA ···· 4242</strong>
                 <span>READY TO USE</span>
               </div>
             </div>
@@ -588,10 +589,6 @@
             <div class="demo-checkout-summary-row">
               <span>SUBTOTAL</span>
               <strong id="demo-checkout-subtotal">€0.00</strong>
-            </div>
-            <div class="demo-checkout-summary-row">
-              <span>DIGITAL DELIVERY</span>
-              <span class="demo-checkout-summary-note">INCLUDED</span>
             </div>
             <div class="demo-checkout-summary-divider" aria-hidden="true"></div>
             <div class="demo-checkout-summary-row demo-checkout-summary-total">
@@ -741,8 +738,8 @@
   </div>
 
   <!-- Three.js Local Script Loading -->
-  <script type="module" src="/crate/crate.js?v=20260831-webmcp-m51"></script>
-  <script type="module" src="/crate/webmcp.js?v=20260831-webmcp-m51"></script>
+  <script type="module" src="/crate/crate.js?v=20260831-webmcp-m52"></script>
+  <script type="module" src="/crate/webmcp.js?v=20260831-webmcp-m52"></script>
   <script>
     // Presentation-only local bridge hooks: keep cover testing useful when
     // the static preview cannot proxy the API media route, and let a mouse
