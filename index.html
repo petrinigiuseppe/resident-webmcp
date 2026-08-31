@@ -186,8 +186,8 @@
     .fallback-card-btn.primary-btn { border-color: #03ff00; color: #03ff00; }
   </style>
   <!-- Stylesheets -->
-  <link id="crate-stylesheet" rel="stylesheet" href="/crate/style.css?v=20260831-webmcp-m48">
-  <link id="crate-light-stylesheet" rel="stylesheet" media="(prefers-color-scheme: light)" href="/crate/light.css?v=20260831-webmcp-m48">
+  <link id="crate-stylesheet" rel="stylesheet" href="/crate/style.css?v=20260831-webmcp-m49">
+  <link id="crate-light-stylesheet" rel="stylesheet" media="(prefers-color-scheme: light)" href="/crate/light.css?v=20260831-webmcp-m49">
   <script>
     (function () {
       var root = document.documentElement;
@@ -239,7 +239,7 @@
           recoveryAttempted = true;
           recoveryTimer = window.setTimeout(function () {
             if (confirmStyles()) return;
-          stylesheet.href = '/crate/style.css?v=20260831-webmcp-m48&recovery=' + Date.now();
+          stylesheet.href = '/crate/style.css?v=20260831-webmcp-m49&recovery=' + Date.now();
           }, 80);
         }
 
@@ -520,6 +520,7 @@
           <button id="panel-checkout-btn" class="checkout-btn panel-checkout-btn hidden" type="button" disabled aria-disabled="true" data-checkout-trigger="true" title="Review checkout for the records in My Crate">
             <span><span class="desktop-only">BUY CRATE</span><span class="mobile-only">BUY</span> (<span class="panel-checkout-total" aria-label="Crate total">€0.00</span>)</span>
           </button>
+          <div id="release-download-actions" class="release-download-actions hidden" aria-live="polite"></div>
         </div>
       </div>
     </aside>
@@ -649,9 +650,65 @@
     </div>
   </div>
 
+  <!-- Demo-only checkout surface. It never creates a real order or unlocks
+       production delivery; it exists so the hackathon flow can stay on-site. -->
+  <div id="demo-checkout-modal" class="demo-checkout-modal hidden" role="dialog" aria-modal="true" aria-labelledby="demo-checkout-title" aria-describedby="demo-checkout-description" aria-hidden="true" data-step="account">
+    <div class="demo-checkout-sheet">
+      <button id="demo-checkout-close" class="demo-checkout-close" type="button" aria-label="Close demo checkout">&times;</button>
+      <div class="demo-checkout-topline">
+        <span class="demo-checkout-kicker">SEPH MARTIN / DEMO CHECKOUT</span>
+        <span id="demo-checkout-step-label" class="demo-checkout-step-label">01 / ACCOUNT</span>
+      </div>
+      <div class="demo-checkout-heading">
+        <span class="demo-checkout-rule" aria-hidden="true"></span>
+        <h2 id="demo-checkout-title">YOUR CRATE, READY.</h2>
+      </div>
+      <p id="demo-checkout-description" class="demo-checkout-description">A compact checkout simulation for this hackathon demo.</p>
+
+      <div id="demo-checkout-account-step" class="demo-checkout-step">
+        <span class="demo-checkout-index">01</span>
+        <h3>CREATE A DEMO ACCOUNT</h3>
+        <p class="demo-checkout-copy">Your crate and demo delivery status stay in this browser. No password, email or payment is sent.</p>
+        <label class="demo-checkout-field-label" for="demo-checkout-email">EMAIL ADDRESS</label>
+        <input id="demo-checkout-email" class="demo-checkout-email" type="email" inputmode="email" autocomplete="email" spellcheck="false" aria-label="Demo account email">
+        <button id="demo-checkout-account-continue" class="demo-checkout-primary" type="button">CONTINUE TO REVIEW</button>
+      </div>
+
+      <div id="demo-checkout-review-step" class="demo-checkout-step hidden">
+        <div class="demo-checkout-review-meta">
+          <span id="demo-checkout-count">0 releases</span>
+          <span class="demo-checkout-account-chip">DEMO ACCOUNT · <span id="demo-checkout-account-email">demo account</span></span>
+        </div>
+        <ul id="demo-checkout-lines" class="demo-checkout-lines"></ul>
+        <div class="demo-checkout-total-row">
+          <span>CRATE TOTAL</span>
+          <strong id="demo-checkout-total">€0.00</strong>
+        </div>
+        <button id="demo-checkout-confirm" class="demo-checkout-primary" type="button">COMPLETE DEMO PURCHASE</button>
+        <p class="demo-checkout-footnote">Demo only · no payment is taken · Lemon is not contacted.</p>
+      </div>
+
+      <div id="demo-checkout-success-step" class="demo-checkout-step hidden">
+        <span class="demo-checkout-success-mark" aria-hidden="true">✓</span>
+        <span class="demo-checkout-index">03</span>
+        <h3>PURCHASE COMPLETE</h3>
+        <p class="demo-checkout-copy"><span id="demo-checkout-purchased-count">0 releases added to My Crate</span> for <span id="demo-checkout-success-account">demo account</span>.</p>
+        <div class="demo-checkout-order-row">
+          <span>DEMO ORDER</span>
+          <strong id="demo-checkout-order-id">DEMO-—</strong>
+        </div>
+        <button id="demo-checkout-open-crate" class="demo-checkout-primary" type="button">OPEN MY CRATE</button>
+        <p class="demo-checkout-footnote">Select a purchased release to download its local demo package.</p>
+      </div>
+
+      <p id="demo-checkout-error" class="demo-checkout-error hidden" role="alert"></p>
+      <div class="demo-checkout-footer">LOCAL DEMO STATE · NO REAL PAYMENT</div>
+    </div>
+  </div>
+
   <!-- Three.js Local Script Loading -->
-  <script type="module" src="/crate/crate.js?v=20260831-webmcp-m48"></script>
-  <script type="module" src="/crate/webmcp.js?v=20260831-webmcp-m48"></script>
+  <script type="module" src="/crate/crate.js?v=20260831-webmcp-m49"></script>
+  <script type="module" src="/crate/webmcp.js?v=20260831-webmcp-m49"></script>
   <script>
     // Presentation-only local bridge hooks: keep cover testing useful when
     // the static preview cannot proxy the API media route, and let a mouse

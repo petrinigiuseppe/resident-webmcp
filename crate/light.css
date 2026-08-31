@@ -863,3 +863,95 @@
     paint-order: stroke fill;
     filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.82)) !important;
   }
+
+  /* Demo checkout keeps the light-mode action green enough to read as a
+     stateful purchase flow, without importing the dark theme's neon green. */
+  .release-download-actions {
+    border-color: rgba(23, 107, 42, 0.24) !important;
+    background: linear-gradient(145deg, rgba(23, 107, 42, 0.08), rgba(0, 0, 0, 0.02)) !important;
+  }
+
+  .release-download-label,
+  .release-download-status,
+  .release-download-btn {
+    color: #176b2a !important;
+  }
+
+  .release-download-btn {
+    border-color: rgba(23, 107, 42, 0.34) !important;
+    background: rgba(23, 107, 42, 0.06) !important;
+  }
+
+  .release-download-btn:hover,
+  .release-download-btn:focus-visible {
+    border-color: #176b2a !important;
+    background: rgba(23, 107, 42, 0.12) !important;
+    box-shadow: 0 0 16px rgba(23, 107, 42, 0.14) !important;
+  }
+
+  .demo-checkout-modal {
+    background: rgba(245, 245, 247, 0.72) !important;
+  }
+
+  .demo-checkout-sheet {
+    border-color: rgba(0, 0, 0, 0.12) !important;
+    background:
+      radial-gradient(circle at 100% 0%, rgba(23, 107, 42, 0.1), transparent 34%),
+      rgba(255, 255, 255, 0.97) !important;
+    box-shadow: 0 28px 80px rgba(0, 0, 0, 0.18), 0 0 42px rgba(23, 107, 42, 0.07) !important;
+  }
+
+  .demo-checkout-close {
+    border-color: rgba(0, 0, 0, 0.12) !important;
+    background: rgba(0, 0, 0, 0.035) !important;
+    color: var(--text-secondary) !important;
+  }
+
+  .demo-checkout-close:hover,
+  .demo-checkout-close:focus-visible {
+    border-color: #176b2a !important;
+    color: var(--text-primary) !important;
+  }
+
+  .demo-checkout-kicker,
+  .demo-checkout-success-mark {
+    color: #176b2a !important;
+  }
+
+  .demo-checkout-rule {
+    background-color: #176b2a;
+  }
+
+  .demo-checkout-success-mark {
+    background: transparent !important;
+    border-color: #176b2a !important;
+  }
+
+  .demo-checkout-email {
+    border-color: rgba(0, 0, 0, 0.14) !important;
+    background: rgba(0, 0, 0, 0.035) !important;
+    color: var(--text-primary) !important;
+  }
+
+  .demo-checkout-email:focus {
+    border-color: #176b2a !important;
+    box-shadow: 0 0 0 3px rgba(23, 107, 42, 0.12) !important;
+  }
+
+  .demo-checkout-primary {
+    border-color: #176b2a !important;
+    background: #176b2a !important;
+    color: #ffffff !important;
+  }
+
+  .demo-checkout-primary:hover,
+  .demo-checkout-primary:focus-visible {
+    background: #0f5d22 !important;
+    box-shadow: 0 0 20px rgba(23, 107, 42, 0.18) !important;
+  }
+
+  .demo-checkout-lines,
+  .demo-checkout-line,
+  .demo-checkout-order-row {
+    border-color: rgba(0, 0, 0, 0.1) !important;
+  }

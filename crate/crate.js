@@ -1,6 +1,6 @@
 /* --- 3D Vinyl Crate digging (Beta) crate.js --- */
 import * as THREE from './vendor/three.module.js';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m48';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m49';
 
 diagnostics.record('runtime', 'crate_module_loaded', { build_version: WEBMCP_BUILD_VERSION });
 
@@ -83,6 +83,11 @@ const lemonOverlayCallbacks = {
   onClose: null,
   onSuccess: null
 };
+const DEMO_ACCOUNT_STORAGE_KEY = 'sm_demo_checkout_account_v1';
+const DEMO_PURCHASES_STORAGE_KEY = 'sm_demo_checkout_purchases_v1';
+let demoCheckoutSelection = [];
+let demoCheckoutStep = 'account';
+let demoCheckoutLastFocus = null;
 
 function isLemonOverlayEnabled() {
   try {
@@ -1272,6 +1277,416 @@ function getCheckoutSummary() {
   };
 }
 
+function isDemoCheckoutSimulatorEnabled() {
+  try {
+    if (typeof window === 'undefined') return false;
+    const hostname = String(window.location.hostname || '').toLowerCase();
+    const isDemoHost = hostname === 'demo.sephmartin.com';
+    const isLocalHost = hostname === '127.0.0.1' || hostname === 'localhost';
+    if (!isDemoHost && !isLocalHost) return false;
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('demo_checkout') === '0') return false;
+    // The real Lemon overlay remains an explicit escape hatch for QA and
+    // provider-event testing, even on the demo host.
+    if (isLemonOverlayEnabled()) return false;
+    if (params.get('demo_checkout') === '1') return true;
+    return isDemoHost || isLocalHost;
+  } catch {
+    return false;
+  }
+}
+
+function readDemoStorage(key, fallback = null) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    return parsed ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeDemoStorage(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readDemoAccount() {
+  const account = readDemoStorage(DEMO_ACCOUNT_STORAGE_KEY, null);
+  if (!account || typeof account !== 'object') return null;
+  const email = String(account.email || '').trim().toLowerCase();
+  return email ? { ...account, email } : null;
+}
+
+function readDemoPurchaseLedger() {
+  const ledger = readDemoStorage(DEMO_PURCHASES_STORAGE_KEY, null);
+  if (!ledger || typeof ledger !== 'object' || !Array.isArray(ledger.orders)) {
+    return { schema_version: 'demo-purchases.v1', orders: [] };
+  }
+  return {
+    schema_version: 'demo-purchases.v1',
+    orders: ledger.orders.filter(order => order && typeof order === 'object')
+  };
+}
+
+function getDemoPurchaseForRecord(item) {
+  const recordId = getCrateRecordId(item);
+  if (!recordId) return null;
+  const ledger = readDemoPurchaseLedger();
+  for (let index = ledger.orders.length - 1; index >= 0; index -= 1) {
+    const order = ledger.orders[index];
+    if (Array.isArray(order.record_ids) && order.record_ids.map(String).includes(recordId)) {
+      return order;
+    }
+  }
+  return null;
+}
+
+function formatDemoEuro(cents) {
+  return `€${(Math.max(0, Number(cents) || 0) / 100).toFixed(2)}`;
+}
+
+function setDemoCheckoutError(message = '') {
+  const error = document.getElementById('demo-checkout-error');
+  if (!error) return;
+  error.textContent = String(message || '');
+  error.classList.toggle('hidden', !message);
+}
+
+function setDemoCheckoutStep(step) {
+  demoCheckoutStep = step;
+  const steps = {
+    account: document.getElementById('demo-checkout-account-step'),
+    review: document.getElementById('demo-checkout-review-step'),
+    success: document.getElementById('demo-checkout-success-step')
+  };
+  Object.entries(steps).forEach(([name, element]) => {
+    if (element) element.classList.toggle('hidden', name !== step);
+  });
+
+  const labels = {
+    account: '01 / ACCOUNT',
+    review: '02 / REVIEW',
+    success: '03 / COMPLETE'
+  };
+  const stepLabel = document.getElementById('demo-checkout-step-label');
+  if (stepLabel) stepLabel.textContent = labels[step] || labels.account;
+  const modal = document.getElementById('demo-checkout-modal');
+  if (modal) modal.dataset.step = step;
+}
+
+function renderDemoCheckoutReview() {
+  const list = document.getElementById('demo-checkout-lines');
+  if (list) {
+    list.replaceChildren();
+    demoCheckoutSelection.forEach(item => {
+      const line = document.createElement('li');
+      line.className = 'demo-checkout-line';
+
+      const title = document.createElement('span');
+      title.className = 'demo-checkout-line-title';
+      title.textContent = item.title || 'Untitled release';
+      line.appendChild(title);
+
+      const price = document.createElement('span');
+      price.className = 'demo-checkout-line-price';
+      price.textContent = formatDemoEuro(parsePriceCents(item.price_text));
+      line.appendChild(price);
+      list.appendChild(line);
+    });
+  }
+
+  const total = demoCheckoutSelection.reduce(
+    (sum, item) => sum + parsePriceCents(item.price_text),
+    0
+  );
+  const totalElement = document.getElementById('demo-checkout-total');
+  if (totalElement) totalElement.textContent = formatDemoEuro(total);
+  const countElement = document.getElementById('demo-checkout-count');
+  if (countElement) countElement.textContent = `${demoCheckoutSelection.length} release${demoCheckoutSelection.length === 1 ? '' : 's'}`;
+  const account = readDemoAccount();
+  const accountElement = document.getElementById('demo-checkout-account-email');
+  if (accountElement) accountElement.textContent = account?.email || 'demo account';
+}
+
+function openDemoCheckoutModal(items) {
+  const modal = document.getElementById('demo-checkout-modal');
+  if (!modal) return false;
+  const selection = (items || []).filter(Boolean);
+  if (selection.length === 0) return false;
+
+  demoCheckoutSelection = selection;
+  demoCheckoutLastFocus = document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : null;
+  setDemoCheckoutError('');
+  renderDemoCheckoutReview();
+  const account = readDemoAccount();
+  const emailInput = document.getElementById('demo-checkout-email');
+  if (emailInput) emailInput.value = account?.email || 'demo@sephmartin.test';
+
+  modal.classList.remove('hidden');
+  modal.setAttribute('aria-hidden', 'false');
+  setDemoCheckoutStep(account ? 'review' : 'account');
+  diagnostics.record('ui', 'demo_checkout_opened', {
+    cart_count: selection.length,
+    total_cents: selection.reduce((sum, item) => sum + parsePriceCents(item.price_text), 0),
+    account_exists: Boolean(account),
+    checkout_surface: 'demo_simulator'
+  }, { snapshot: true });
+
+  window.requestAnimationFrame(() => {
+    const focusTarget = account
+      ? document.getElementById('demo-checkout-confirm')
+      : emailInput;
+    focusTarget?.focus();
+  });
+  return true;
+}
+
+function closeDemoCheckoutModal({ reason = 'dismissed' } = {}) {
+  const modal = document.getElementById('demo-checkout-modal');
+  if (!modal || modal.classList.contains('hidden')) return false;
+  modal.classList.add('hidden');
+  modal.setAttribute('aria-hidden', 'true');
+  setDemoCheckoutError('');
+  demoCheckoutSelection = [];
+  setDemoCheckoutStep('account');
+  diagnostics.record('ui', 'demo_checkout_closed', { reason }, { snapshot: true });
+  if (demoCheckoutLastFocus?.isConnected) demoCheckoutLastFocus.focus();
+  demoCheckoutLastFocus = null;
+  return true;
+}
+
+function continueDemoCheckoutAccount() {
+  const input = document.getElementById('demo-checkout-email');
+  const email = String(input?.value || '').trim().toLowerCase();
+  if (!email || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    setDemoCheckoutError('ENTER A VALID EMAIL FOR THE DEMO ACCOUNT.');
+    input?.focus();
+    return false;
+  }
+
+  const account = {
+    email,
+    created_at: readDemoAccount()?.created_at || new Date().toISOString(),
+    account_type: 'demo'
+  };
+  if (!writeDemoStorage(DEMO_ACCOUNT_STORAGE_KEY, account)) {
+    setDemoCheckoutError('THIS BROWSER BLOCKED LOCAL DEMO STORAGE.');
+    return false;
+  }
+
+  diagnostics.record('ui', 'demo_account_created', {
+    account_type: 'demo',
+    email_domain: email.split('@')[1] || ''
+  }, { snapshot: true });
+  setDemoCheckoutError('');
+  renderDemoCheckoutReview();
+  setDemoCheckoutStep('review');
+  document.getElementById('demo-checkout-confirm')?.focus();
+  return true;
+}
+
+function completeDemoCheckout() {
+  const account = readDemoAccount();
+  if (!account || demoCheckoutSelection.length === 0) {
+    setDemoCheckoutStep('account');
+    setDemoCheckoutError('CREATE THE DEMO ACCOUNT BEFORE COMPLETING CHECKOUT.');
+    return false;
+  }
+
+  const recordIds = [...new Set(demoCheckoutSelection.map(getCrateRecordId).filter(Boolean))];
+  const totalCents = demoCheckoutSelection.reduce(
+    (sum, item) => sum + parsePriceCents(item.price_text),
+    0
+  );
+  const order = {
+    order_id: `DEMO-${Date.now().toString(36).toUpperCase()}`,
+    account_type: 'demo',
+    email: account.email,
+    purchased_at: new Date().toISOString(),
+    record_ids: recordIds,
+    total_cents: totalCents
+  };
+  const ledger = readDemoPurchaseLedger();
+  ledger.orders = [...ledger.orders, order].slice(-20);
+  if (!writeDemoStorage(DEMO_PURCHASES_STORAGE_KEY, ledger)) {
+    setDemoCheckoutError('THIS BROWSER BLOCKED LOCAL DEMO STORAGE.');
+    return false;
+  }
+
+  const orderIdElement = document.getElementById('demo-checkout-order-id');
+  if (orderIdElement) orderIdElement.textContent = order.order_id;
+  const purchasedCountElement = document.getElementById('demo-checkout-purchased-count');
+  if (purchasedCountElement) {
+    purchasedCountElement.textContent = `${recordIds.length} release${recordIds.length === 1 ? '' : 's'} added to My Crate`;
+  }
+  const successAccountElement = document.getElementById('demo-checkout-success-account');
+  if (successAccountElement) successAccountElement.textContent = account.email;
+
+  diagnostics.record('ui', 'demo_checkout_completed', {
+    order_id: order.order_id,
+    account_type: 'demo',
+    cart_count: recordIds.length,
+    total_cents: totalCents,
+    checkout_surface: 'demo_simulator'
+  }, { snapshot: true });
+  setDemoCheckoutError('');
+  setDemoCheckoutStep('success');
+  document.getElementById('demo-checkout-open-crate')?.focus();
+  return true;
+}
+
+function openDemoMyCrateAfterPurchase() {
+  const firstRecordId = demoCheckoutSelection[0]
+    ? getCrateRecordId(demoCheckoutSelection[0])
+    : '';
+  closeDemoCheckoutModal({ reason: 'opened_my_crate' });
+  const view = showMyCrateView();
+  if (!view?.ok || !firstRecordId) return view;
+
+  const orderedItems = getOrderedUserCrateSlugs({ excludeAnimating: false });
+  const index = orderedItems.indexOf(firstRecordId);
+  if (index >= 0 && index < userRecordsData.length) {
+    userActiveIndex = index;
+    selectRecord(index);
+  }
+  return { ...view, focused_record_id: firstRecordId };
+}
+
+function downloadDemoRelease(item) {
+  const purchase = getDemoPurchaseForRecord(item);
+  if (!item || !purchase) return false;
+
+  const manifest = {
+    schema_version: 'sephmartin.demo-release-package.v1',
+    demo_only: true,
+    delivery: 'manifest_only',
+    note: 'Hackathon demo package. No payment was taken and no audio files are included.',
+    order_id: purchase.order_id,
+    purchased_at: purchase.purchased_at,
+    release: {
+      record_id: getCrateRecordId(item),
+      catalog_slug: String(item.slug || ''),
+      title: item.title || '',
+      artist: item.artist || '',
+      release_date: item.release_date || null,
+      format: 'MP3 demo manifest',
+      tracks: Array.isArray(item.tracks) ? item.tracks.map(track => ({
+        number: track.number || null,
+        title: track.title || '',
+        duration_seconds: Number(track.duration) || 0
+      })) : []
+    }
+  };
+
+  const filenameBase = String(item.title || 'seph-martin-release')
+    .replace(/[^a-z0-9]+/gi, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase() || 'seph-martin-release';
+  const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `${filenameBase}-demo-package.json`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+  const status = document.getElementById('release-download-status');
+  if (status) {
+    status.textContent = 'DEMO PACKAGE DOWNLOADED';
+    status.classList.remove('hidden');
+  }
+  diagnostics.record('ui', 'demo_download_started', {
+    order_id: purchase.order_id,
+    record_id: getCrateRecordId(item),
+    delivery: 'manifest_only'
+  }, { snapshot: true });
+  return true;
+}
+
+function renderReleaseDownloadAction(item) {
+  const container = document.getElementById('release-download-actions');
+  if (!container) return;
+  container.replaceChildren();
+
+  const purchase = isUserCrateViewActive && isDemoCheckoutSimulatorEnabled()
+    ? getDemoPurchaseForRecord(item)
+    : null;
+  container.classList.toggle('hidden', !purchase);
+  if (!purchase) return;
+
+  const header = document.createElement('div');
+  header.className = 'release-download-header';
+  const label = document.createElement('span');
+  label.className = 'release-download-label';
+  label.textContent = 'PURCHASED · DEMO ACCOUNT';
+  header.appendChild(label);
+  const order = document.createElement('span');
+  order.className = 'release-download-order';
+  order.textContent = purchase.order_id || 'DEMO ORDER';
+  header.appendChild(order);
+  container.appendChild(header);
+
+  const button = document.createElement('button');
+  button.id = 'release-download-btn';
+  button.className = 'release-download-btn';
+  button.type = 'button';
+  button.textContent = 'DOWNLOAD DEMO PACKAGE';
+  button.addEventListener('click', () => downloadDemoRelease(item));
+  container.appendChild(button);
+
+  const helper = document.createElement('p');
+  helper.className = 'release-download-helper';
+  helper.textContent = 'Local demo manifest · no payment or real delivery.';
+  container.appendChild(helper);
+
+  const status = document.createElement('p');
+  status.id = 'release-download-status';
+  status.className = 'release-download-status hidden';
+  container.appendChild(status);
+}
+
+function initDemoCheckoutUI() {
+  const modal = document.getElementById('demo-checkout-modal');
+  if (!modal || modal.dataset.bound === 'true') return;
+  modal.dataset.bound = 'true';
+
+  const closeButton = document.getElementById('demo-checkout-close');
+  const continueButton = document.getElementById('demo-checkout-account-continue');
+  const confirmButton = document.getElementById('demo-checkout-confirm');
+  const openCrateButton = document.getElementById('demo-checkout-open-crate');
+  const emailInput = document.getElementById('demo-checkout-email');
+
+  closeButton?.addEventListener('click', () => closeDemoCheckoutModal());
+  continueButton?.addEventListener('click', continueDemoCheckoutAccount);
+  confirmButton?.addEventListener('click', completeDemoCheckout);
+  openCrateButton?.addEventListener('click', openDemoMyCrateAfterPurchase);
+  emailInput?.addEventListener('keydown', event => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      continueDemoCheckoutAccount();
+    }
+  });
+  modal.addEventListener('click', event => {
+    if (event.target === modal) closeDemoCheckoutModal();
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && !modal.classList.contains('hidden')) {
+      closeDemoCheckoutModal({ reason: 'escape' });
+    }
+  });
+}
+
 function manageCrateRecord(recordId, action) {
   const finish = result => {
     diagnostics.record('ui', 'crate_mutation', {
@@ -1355,15 +1770,21 @@ function startCheckoutFromAgent() {
   trigger.click();
 
   const overlayActive = isLemonOverlayEnabled();
+  const demoSimulatorActive = isDemoCheckoutSimulatorEnabled();
   return {
     ok: true,
     ...checkoutSummary,
     view: 'my_crate',
-    status: 'starting',
+    status: demoSimulatorActive ? 'demo_checkout_opened' : 'starting',
     checkout_started: true,
     purchase_started: false,
-    human_confirmation_required: false,
-    next_step: overlayActive
+    human_confirmation_required: demoSimulatorActive,
+    checkout_surface: demoSimulatorActive
+      ? 'demo_simulator'
+      : overlayActive ? 'lemon_overlay' : 'lemon_redirect',
+    next_step: demoSimulatorActive
+      ? 'Confirm the demo purchase in the on-site checkout simulator.'
+      : overlayActive
       ? 'Complete the purchase in the Lemon checkout overlay.'
       : 'Complete the purchase on the Lemon checkout page.'
   };
@@ -1384,6 +1805,9 @@ function publishCrateApi() {
       ui_context: getUiContext(),
       webgl: Boolean(renderer),
       webmcp_candidate: Boolean(document.modelContext),
+      checkout_surface: isDemoCheckoutSimulatorEnabled()
+        ? 'demo_simulator'
+        : isLemonOverlayEnabled() ? 'lemon_overlay' : 'lemon_redirect',
       purchase_automation: false
     }),
     getMasterCatalog: () => masterCatalog.slice(),
@@ -2415,6 +2839,28 @@ function initUI() {
       return;
     }
 
+    if (isDemoCheckoutSimulatorEnabled()) {
+      const opened = openDemoCheckoutModal(validItems);
+      if (!opened) {
+        return {
+          ok: false,
+          error: { code: 'DEMO_CHECKOUT_UNAVAILABLE', message: 'The demo checkout surface is unavailable.' }
+        };
+      }
+      const summary = getCheckoutSummary();
+      return {
+        ok: true,
+        status: 'demo_checkout_opened',
+        checkout_started: true,
+        purchase_started: false,
+        human_confirmation_required: true,
+        checkout_surface: 'demo_simulator',
+        cart_count: summary.cart_count,
+        total_cents: summary.total_cents,
+        next_step: 'Confirm the demo purchase in the on-site checkout simulator.'
+      };
+    }
+
     checkoutInFlight = true;
     checkoutTriggers.forEach(button => {
       button.disabled = true;
@@ -2630,6 +3076,7 @@ function initUI() {
 
   // Initialize auth UI action listeners
   initAuthUI();
+  initDemoCheckoutUI();
 }
 
 // Toggles between collapsed and expanded drawer state on mobile viewport
@@ -3828,6 +4275,7 @@ function showRecordDetails(index) {
       promptEl.classList.add('hidden');
     }
   }
+  renderReleaseDownloadAction(item);
 
   // Display Panel
   const panel = document.getElementById('details-panel');
