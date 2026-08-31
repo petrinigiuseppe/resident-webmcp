@@ -15,8 +15,8 @@ import {
   getAgentStatusText,
   isPassiveAgentStatus,
   resolveAgentOperation
-} from './agent-state.js?v=20260831-webmcp-m52';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m52';
+} from './agent-state.js?v=20260831-webmcp-m56';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m56';
 
 const MAX_TOOL_OUTPUT_RECORDS = 12;
 const ACTIVE_STATES = new Set(['loading', 'active', 'busy', 'standby']);
@@ -27,7 +27,7 @@ const DIG_PREVIEW_MS = 420;
 const DRAG_MARGIN_PX = 12;
 const RETURN_FOCUS_CLEAR_MS = 560;
 const RETURN_TO_HUMAN_MS = 960;
-const HUMAN_OVERRIDE_EXCLUSION_SELECTOR = '#agent-mode-hud, #mobile-agent-hint, #agent-debug-panel, #agent-debug-trigger, #site-diagnostics-download, #details-panel, #demo-checkout-modal, [data-agent-debug-action]';
+const HUMAN_OVERRIDE_EXCLUSION_SELECTOR = '#agent-mode-hud, #mobile-agent-hint, #agent-debug-panel, #agent-debug-trigger, #site-diagnostics-download, #details-panel, #demo-checkout-modal, #demo-completion-modal, [data-agent-debug-action]';
 
 let agentState = 'human';
 let agentOperation = 'human';
@@ -1625,7 +1625,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   await registerTool(modelContext, {
     name: 'start_checkout',
     title: 'Start Lemon checkout for My Crate',
-    description: 'For an explicit request such as "buy my crate", activates the visible checkout control. On the hackathon demo it opens the short on-site simulator with a pre-signed-in demo profile; otherwise it opens the Lemon overlay or redirects this tab to Lemon. It never completes a real purchase.',
+    description: 'For an explicit request such as "buy my crate", activates the visible checkout control. On the hackathon demo it opens the short on-site simulator with a pre-signed-in demo profile; after a simulated purchase, the purchased release reaches the end-of-demo boundary and reports that no audio file is available. Otherwise it opens the Lemon overlay or redirects this tab to Lemon. It never completes a real purchase.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: uiMutation,
     async execute() {

@@ -186,8 +186,8 @@
     .fallback-card-btn.primary-btn { border-color: #03ff00; color: #03ff00; }
   </style>
   <!-- Stylesheets -->
-  <link id="crate-stylesheet" rel="stylesheet" href="/crate/style.css?v=20260831-webmcp-m52">
-  <link id="crate-light-stylesheet" rel="stylesheet" media="(prefers-color-scheme: light)" href="/crate/light.css?v=20260831-webmcp-m52">
+  <link id="crate-stylesheet" rel="stylesheet" href="/crate/style.css?v=20260831-webmcp-m56">
+  <link id="crate-light-stylesheet" rel="stylesheet" media="(prefers-color-scheme: light)" href="/crate/light.css?v=20260831-webmcp-m56">
   <script>
     (function () {
       var root = document.documentElement;
@@ -239,7 +239,7 @@
           recoveryAttempted = true;
           recoveryTimer = window.setTimeout(function () {
             if (confirmStyles()) return;
-          stylesheet.href = '/crate/style.css?v=20260831-webmcp-m52&recovery=' + Date.now();
+      stylesheet.href = '/crate/style.css?v=20260831-webmcp-m56&recovery=' + Date.now();
           }, 80);
         }
 
@@ -528,9 +528,16 @@
     <!-- Checkout surface. It stays inside the UI overlay so the agent orb
          remains above it while an MCP command is being completed. -->
     <div id="demo-checkout-modal" class="demo-checkout-modal hidden" role="dialog" aria-modal="true" aria-labelledby="demo-checkout-title" aria-describedby="demo-checkout-description" aria-hidden="true" data-step="checkout">
+      <div id="demo-checkout-confetti-layer" class="demo-confetti-layer" aria-hidden="true"></div>
       <div class="demo-checkout-sheet">
         <button id="demo-checkout-close" class="demo-checkout-close" type="button" aria-label="Close checkout">&times;</button>
         <div class="demo-checkout-heading">
+          <span id="demo-checkout-success-mark" class="demo-checkout-success-mark hidden" aria-hidden="true">
+            <svg viewBox="0 0 24 24" role="presentation" focusable="false">
+              <circle cx="12" cy="12" r="9"></circle>
+              <path d="m7.5 12 3 3 6-6"></path>
+            </svg>
+          </span>
           <h2 id="demo-checkout-title">YOUR CRATE, READY.</h2>
         </div>
         <p id="demo-checkout-description" class="demo-checkout-description">Your saved profile is ready. Review the crate, then complete your purchase.</p>
@@ -600,16 +607,27 @@
         </div>
 
         <div id="demo-checkout-success-step" class="demo-checkout-step hidden">
-          <span class="demo-checkout-success-mark" aria-hidden="true">✓</span>
-          <p class="demo-checkout-copy"><span id="demo-checkout-purchased-count">0 releases added to My Crate</span> for <span id="demo-checkout-success-account">your account</span>.</p>
+          <p class="demo-checkout-copy"><span id="demo-checkout-purchased-count">0 releases added to My Crate</span>.</p>
+          <p class="demo-checkout-email-note">Further order details are available via email.</p>
           <div class="demo-checkout-order-row">
             <span>ORDER</span>
             <strong id="demo-checkout-order-id">ORDER-—</strong>
           </div>
-          <p class="demo-checkout-footnote">Returning to My Crate. Purchased releases now show DOWNLOAD.</p>
+          <button id="demo-checkout-continue" class="demo-checkout-primary" type="button">RETURN TO MY CRATE</button>
         </div>
 
         <p id="demo-checkout-error" class="demo-checkout-error hidden" role="alert"></p>
+      </div>
+    </div>
+
+    <div id="demo-completion-modal" class="demo-completion-modal hidden" role="dialog" aria-modal="true" aria-labelledby="demo-completion-title" aria-describedby="demo-completion-message" aria-hidden="true">
+      <div id="demo-completion-confetti-layer" class="demo-confetti-layer" aria-hidden="true"></div>
+      <div class="demo-completion-card">
+        <button id="demo-completion-close" class="demo-completion-close" type="button" aria-label="Close demo completion">&times;</button>
+        <span class="demo-completion-kicker">PREVIEW COMPLETE</span>
+        <h2 id="demo-completion-title">DEMO COMPLETE</h2>
+        <p id="demo-completion-message">YOU REACHED THE END OF THIS WORLD — WELL PLAYED :)</p>
+        <button id="demo-completion-return" class="demo-completion-primary" type="button">RETURN TO MY CRATE</button>
       </div>
     </div>
   </div>
@@ -738,8 +756,8 @@
   </div>
 
   <!-- Three.js Local Script Loading -->
-  <script type="module" src="/crate/crate.js?v=20260831-webmcp-m52"></script>
-  <script type="module" src="/crate/webmcp.js?v=20260831-webmcp-m52"></script>
+  <script type="module" src="/crate/crate.js?v=20260831-webmcp-m56"></script>
+  <script type="module" src="/crate/webmcp.js?v=20260831-webmcp-m56"></script>
   <script>
     // Presentation-only local bridge hooks: keep cover testing useful when
     // the static preview cannot proxy the API media route, and let a mouse

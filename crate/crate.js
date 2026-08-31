@@ -1,6 +1,6 @@
 /* --- 3D Vinyl Crate digging (Beta) crate.js --- */
 import * as THREE from './vendor/three.module.js';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m52';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m56';
 
 diagnostics.record('runtime', 'crate_module_loaded', { build_version: WEBMCP_BUILD_VERSION });
 
@@ -99,6 +99,9 @@ let demoCheckoutStep = 'checkout';
 let demoCheckoutLastFocus = null;
 let demoCheckoutRequestedByAgent = false;
 let demoCheckoutAutoReturnTimer = null;
+let demoCompletionLastFocus = null;
+const DEMO_END_MESSAGE = 'YOU REACHED THE END OF THIS WORLD — WELL PLAYED :)';
+const demoCompletedRecordIds = new Set();
 
 function isLemonOverlayEnabled() {
   try {
@@ -452,6 +455,82 @@ function getUiAudioContext() {
     }
   }
   return uiAudioContext;
+}
+
+// Purchase confirmation is a short generated cue rather than a fetched cash-register
+// sample: it keeps the demo self-contained, avoids provenance/licensing surprises and
+// shares the same user-gesture-gated context as the rest of the site's UI sounds.
+function playPurchaseConfirmationSound() {
+  if (!siteAudioEnabled) {
+    diagnostics.record('audio', 'purchase_confirmation_skipped', {
+      reason: 'site_audio_disabled'
+    });
+    return false;
+  }
+  const context = getUiAudioContext();
+  if (!context || context.state === 'closed') {
+    diagnostics.record('audio', 'purchase_confirmation_skipped', {
+      reason: !context ? 'audio_context_unavailable' : 'audio_context_closed'
+    });
+    return false;
+  }
+
+  const play = () => {
+    if (!siteAudioEnabled || context.state !== 'running') return false;
+    const now = context.currentTime;
+    const master = context.createGain();
+    const filter = context.createBiquadFilter();
+    const delay = context.createDelay(1);
+    const tail = context.createGain();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(3000, now);
+    filter.Q.setValueAtTime(0.45, now);
+    master.gain.setValueAtTime(0.0001, now);
+    master.gain.exponentialRampToValueAtTime(0.12, now + 0.035);
+    master.gain.exponentialRampToValueAtTime(0.0001, now + 0.7);
+    delay.delayTime.setValueAtTime(0.24, now);
+    tail.gain.setValueAtTime(0.08, now);
+    master.connect(filter);
+    filter.connect(context.destination);
+    master.connect(delay);
+    delay.connect(tail);
+    tail.connect(context.destination);
+
+    [
+      { frequency: 392, offset: 0, duration: 0.3, level: 0.72, type: 'sine' },
+      { frequency: 523.25, offset: 0.12, duration: 0.42, level: 0.56, type: 'sine' },
+      { frequency: 659.25, offset: 0.24, duration: 0.55, level: 0.38, type: 'triangle' }
+    ].forEach(voice => {
+      const oscillator = context.createOscillator();
+      const voiceGain = context.createGain();
+      const start = now + voice.offset;
+      oscillator.type = voice.type;
+      oscillator.frequency.setValueAtTime(voice.frequency, start);
+      voiceGain.gain.setValueAtTime(0.0001, start);
+      voiceGain.gain.exponentialRampToValueAtTime(voice.level, start + 0.025);
+      voiceGain.gain.exponentialRampToValueAtTime(0.0001, start + voice.duration);
+      oscillator.connect(voiceGain);
+      voiceGain.connect(master);
+      oscillator.start(start);
+      oscillator.stop(start + voice.duration + 0.04);
+    });
+    diagnostics.record('audio', 'purchase_confirmation_played', {
+      duration_ms: 700,
+      context_state: context.state
+    });
+    return true;
+  };
+
+  if (context.state === 'suspended') {
+    context.resume().then(play).catch(error => {
+      diagnostics.record('audio', 'purchase_confirmation_failed', {
+        reason: 'audio_context_resume_failed',
+        error: String(error?.message || error)
+      });
+    });
+    return true;
+  }
+  return play();
 }
 
 // Navigation feedback is a subtle, tactile mechanical crate tick.
@@ -1419,8 +1498,17 @@ function setDemoCheckoutStep(step) {
   Object.entries(steps).forEach(([name, element]) => {
     if (element) element.classList.toggle('hidden', name !== step);
   });
+  const successMark = document.getElementById('demo-checkout-success-mark');
+  if (successMark) successMark.classList.toggle('hidden', step !== 'success');
   const title = document.getElementById('demo-checkout-title');
   if (title) title.textContent = step === 'success' ? 'PURCHASE COMPLETE' : 'YOUR CRATE, READY.';
+  const description = document.getElementById('demo-checkout-description');
+  if (description) {
+    description.textContent = step === 'success'
+      ? ''
+      : 'Your saved profile is ready. Review the crate, then complete your purchase.';
+    description.classList.toggle('hidden', step === 'success');
+  }
   const modal = document.getElementById('demo-checkout-modal');
   if (modal) modal.dataset.step = step;
 }
@@ -1594,6 +1682,7 @@ function closeDemoCheckoutModal({ reason = 'dismissed' } = {}) {
   const source = modal.dataset.source || 'human';
   modal.classList.add('hidden');
   modal.setAttribute('aria-hidden', 'true');
+  clearDemoConfetti('demo-checkout-confetti-layer');
   setDemoCheckoutError('');
   demoCheckoutSelection = [];
   setDemoCheckoutStep('checkout');
@@ -1641,8 +1730,6 @@ function completeDemoCheckout() {
   if (purchasedCountElement) {
     purchasedCountElement.textContent = `${recordIds.length} release${recordIds.length === 1 ? '' : 's'} added to My Crate`;
   }
-  const successAccountElement = document.getElementById('demo-checkout-success-account');
-  if (successAccountElement) successAccountElement.textContent = account.email;
 
   diagnostics.record('ui', 'demo_checkout_completed', {
     order_id: order.order_id,
@@ -1654,15 +1741,18 @@ function completeDemoCheckout() {
   setDemoCheckoutError('');
   setDemoCheckoutStep('success');
   updateUIControlsState();
+  playPurchaseConfirmationSound();
+  const confettiCount = triggerDemoConfetti('demo-checkout-confetti-layer');
   const source = document.getElementById('demo-checkout-modal')?.dataset.source || 'human';
   window.dispatchEvent(new CustomEvent('seph-demo-checkout-completed', {
-    detail: { source, order_id: order.order_id, checkout_surface: 'demo_simulator' }
+    detail: {
+      source,
+      order_id: order.order_id,
+      checkout_surface: 'demo_simulator',
+      purchase_complete: true,
+      confetti_count: confettiCount
+    }
   }));
-  const firstRecordId = recordIds[0] || '';
-  demoCheckoutAutoReturnTimer = window.setTimeout(() => {
-    demoCheckoutAutoReturnTimer = null;
-    openDemoMyCrateAfterPurchase(firstRecordId);
-  }, 720);
   return true;
 }
 
@@ -1683,59 +1773,159 @@ function openDemoMyCrateAfterPurchase(recordId = '') {
   return { ...view, focused_record_id: firstRecordId };
 }
 
-function downloadDemoRelease(item) {
-  const purchase = getDemoPurchaseForRecord(item);
-  if (!item || !purchase) return false;
-
-  const manifest = {
-    schema_version: 'sephmartin.demo-release-package.v1',
-    demo_only: true,
-    delivery: 'manifest_only',
-    note: 'Hackathon demo package. No payment was taken and no audio files are included.',
-    order_id: purchase.order_id,
-    purchased_at: purchase.purchased_at,
-    release: {
-      record_id: getCrateRecordId(item),
-      catalog_slug: String(item.slug || ''),
-      title: item.title || '',
-      artist: item.artist || '',
-      release_date: item.release_date || null,
-      format: 'MP3 demo manifest',
-      tracks: Array.isArray(item.tracks) ? item.tracks.map(track => ({
-        number: track.number || null,
-        title: track.title || '',
-        duration_seconds: Number(track.duration) || 0
-      })) : []
-    }
+function getDemoCompletionState() {
+  const modal = document.getElementById('demo-completion-modal');
+  const open = Boolean(modal && !modal.classList.contains('hidden'));
+  return {
+    open,
+    message: open
+      ? String(document.getElementById('demo-completion-message')?.textContent || '').trim() || null
+      : null,
+    record_id: open ? String(modal.dataset.recordId || '').trim() || null : null,
+    source: open ? String(modal.dataset.source || '').trim() || null : null,
+    order_id: open ? String(modal.dataset.orderId || '').trim() || null : null
   };
+}
 
-  const filenameBase = String(item.title || 'seph-martin-release')
-    .replace(/[^a-z0-9]+/gi, '-')
-    .replace(/^-+|-+$/g, '')
-    .toLowerCase() || 'seph-martin-release';
-  const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = `${filenameBase}-demo-package.json`;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+function clearDemoConfetti(layerId) {
+  document.getElementById(layerId)?.replaceChildren();
+}
 
-  diagnostics.record('ui', 'demo_download_started', {
-    order_id: purchase.order_id,
-    record_id: getCrateRecordId(item),
-    delivery: 'manifest_only'
-  }, { snapshot: true });
-  window.dispatchEvent(new CustomEvent('seph-demo-download', {
-    detail: {
-      order_id: purchase.order_id,
-      record_id: getCrateRecordId(item),
-      delivery: 'manifest_only'
-    }
-  }));
+function triggerDemoConfetti(layerId) {
+  const layer = document.getElementById(layerId);
+  if (!layer) return 0;
+
+  layer.replaceChildren();
+  let reducedMotion = false;
+  try {
+    reducedMotion = Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+  } catch {}
+  if (reducedMotion) return 0;
+
+  const colors = ['#03ff00', '#ff2d78', '#64d8cb', '#f5f5f7', '#ff9f43', '#1d1d1f'];
+  const count = 42;
+  for (let index = 0; index < count; index += 1) {
+    const piece = document.createElement('span');
+    const angle = (Math.PI * 2 * index) / count + (Math.random() - 0.5) * 0.24;
+    const distance = 120 + Math.random() * 150;
+    piece.className = 'demo-confetti-piece';
+    piece.style.setProperty('--confetti-x', `${(Math.cos(angle) * distance).toFixed(1)}px`);
+    piece.style.setProperty('--confetti-y', `${(Math.sin(angle) * distance).toFixed(1)}px`);
+    piece.style.setProperty('--confetti-rotation', `${Math.round(Math.random() * 720 - 360)}deg`);
+    piece.style.setProperty('--confetti-delay', `${(Math.random() * 0.14).toFixed(2)}s`);
+    piece.style.setProperty('--confetti-color', colors[index % colors.length]);
+    piece.style.setProperty('--confetti-scale', (0.72 + Math.random() * 0.5).toFixed(2));
+    layer.appendChild(piece);
+  }
+  window.setTimeout(() => layer.replaceChildren(), 1900);
+  return count;
+}
+
+function openDemoCompletionModal({ source = 'human', recordId = '', orderId = '', message = DEMO_END_MESSAGE } = {}) {
+  const modal = document.getElementById('demo-completion-modal');
+  if (!modal) return false;
+  if (modal.classList.contains('hidden')) {
+    demoCompletionLastFocus = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+  }
+  const text = String(message || DEMO_END_MESSAGE).trim() || DEMO_END_MESSAGE;
+  const messageElement = document.getElementById('demo-completion-message');
+  if (messageElement) messageElement.textContent = text;
+  modal.dataset.recordId = String(recordId || '');
+  modal.dataset.orderId = String(orderId || '');
+  modal.dataset.source = String(source || 'human');
+  modal.classList.remove('hidden');
+  modal.setAttribute('aria-hidden', 'false');
+  const confettiCount = triggerDemoConfetti('demo-completion-confetti-layer');
+  const detail = {
+    source: modal.dataset.source,
+    record_id: modal.dataset.recordId || null,
+    order_id: modal.dataset.orderId || null,
+    message: text,
+    completion_modal_open: true,
+    confetti_count: confettiCount
+  };
+  diagnostics.record('ui', 'demo_completion_opened', detail, { snapshot: true });
+  window.dispatchEvent(new CustomEvent('seph-demo-completion-opened', { detail }));
+  window.requestAnimationFrame(() => {
+    document.getElementById('demo-completion-close')?.focus();
+  });
   return true;
+}
+
+function closeDemoCompletionModal({ reason = 'dismissed' } = {}) {
+  const modal = document.getElementById('demo-completion-modal');
+  if (!modal || modal.classList.contains('hidden')) return false;
+  const detail = {
+    reason,
+    source: modal.dataset.source || 'human',
+    record_id: modal.dataset.recordId || null,
+    order_id: modal.dataset.orderId || null,
+    completion_modal_open: false
+  };
+  modal.classList.add('hidden');
+  modal.setAttribute('aria-hidden', 'true');
+  clearDemoConfetti('demo-completion-confetti-layer');
+  modal.dataset.recordId = '';
+  modal.dataset.orderId = '';
+  modal.dataset.source = '';
+  diagnostics.record('ui', 'demo_completion_closed', detail, { snapshot: true });
+  window.dispatchEvent(new CustomEvent('seph-demo-completion-closed', { detail }));
+  if (demoCompletionLastFocus?.isConnected) demoCompletionLastFocus.focus();
+  demoCompletionLastFocus = null;
+  return true;
+}
+
+function completeDemoReleasePreview(item, { source = 'human' } = {}) {
+  const purchase = getDemoPurchaseForRecord(item);
+  const recordId = getCrateRecordId(item);
+  if (!item || !purchase || !recordId) {
+    return {
+      ok: false,
+      status: 'demo_download_unavailable',
+      demo_complete: false,
+      download_started: false,
+      download_available: false,
+      record_id: recordId || null,
+      next_step: 'Select a purchased release before reaching the demo boundary.'
+    };
+  }
+
+  demoCompletedRecordIds.add(recordId);
+  updateUIControlsState();
+  const completionModalOpen = openDemoCompletionModal({
+    source,
+    recordId,
+    orderId: purchase.order_id,
+    message: DEMO_END_MESSAGE
+  });
+
+  const detail = {
+    source,
+    order_id: purchase.order_id,
+    record_id: recordId,
+    status: 'demo_complete',
+    delivery: 'none',
+    audio_available: false,
+    message: DEMO_END_MESSAGE,
+    completion_modal_open: completionModalOpen
+  };
+  diagnostics.record('ui', 'demo_preview_completed', detail, { snapshot: true });
+  window.dispatchEvent(new CustomEvent('seph-demo-preview-completed', { detail }));
+  return {
+    ok: true,
+    status: 'demo_complete',
+    demo_complete: true,
+    download_started: false,
+    download_available: false,
+    media_delivery: 'none',
+    record_id: recordId,
+    order_id: purchase.order_id,
+    message: DEMO_END_MESSAGE,
+    completion_modal_open: completionModalOpen,
+    next_step: 'The demo has reached its end. No audio file is available from this preview.'
+  };
 }
 
 function getActiveUserCrateItem() {
@@ -1749,17 +1939,24 @@ function syncDemoCheckoutButton(button, purchasedItem) {
   const shouldDownload = Boolean(purchasedItem);
   if (shouldDownload) {
     if (!button.dataset.demoDefaultContent) button.dataset.demoDefaultContent = button.innerHTML;
-    button.innerHTML = '<span>DOWNLOAD</span>';
+    const recordId = getCrateRecordId(purchasedItem);
+    const demoComplete = demoCompletedRecordIds.has(recordId);
+    button.innerHTML = demoComplete ? '<span>DEMO COMPLETE</span>' : '<span>DOWNLOAD</span>';
     button.classList.add('demo-download-cta');
+    button.classList.toggle('demo-complete-cta', demoComplete);
     button.dataset.demoDownload = 'true';
-    button.title = 'Download the purchased release package';
+    button.dataset.demoComplete = String(demoComplete);
+    button.title = demoComplete
+      ? 'The demo preview has reached its end'
+      : 'Reach the end of the demo preview';
     return;
   }
 
   if (button.dataset.demoDownload === 'true') {
     if (button.dataset.demoDefaultContent) button.innerHTML = button.dataset.demoDefaultContent;
-    button.classList.remove('demo-download-cta');
+    button.classList.remove('demo-download-cta', 'demo-complete-cta');
     button.dataset.demoDownload = 'false';
+    button.dataset.demoComplete = 'false';
     button.title = 'Review checkout for the records in My Crate';
   }
 }
@@ -1771,14 +1968,38 @@ function initDemoCheckoutUI() {
 
   const closeButton = document.getElementById('demo-checkout-close');
   const confirmButton = document.getElementById('demo-checkout-confirm');
+  const continueButton = document.getElementById('demo-checkout-continue');
+  const completionModal = document.getElementById('demo-completion-modal');
+  const completionCloseButton = document.getElementById('demo-completion-close');
+  const completionReturnButton = document.getElementById('demo-completion-return');
 
   closeButton?.addEventListener('click', () => closeDemoCheckoutModal());
   confirmButton?.addEventListener('click', completeDemoCheckout);
+  continueButton?.addEventListener('click', () => {
+    const firstRecordId = demoCheckoutSelection[0]
+      ? getCrateRecordId(demoCheckoutSelection[0])
+      : '';
+    openDemoMyCrateAfterPurchase(firstRecordId);
+  });
   modal.addEventListener('click', event => {
     if (event.target === modal) closeDemoCheckoutModal();
   });
+  completionCloseButton?.addEventListener('click', () => closeDemoCompletionModal());
+  completionReturnButton?.addEventListener('click', () => {
+    const recordId = completionModal?.dataset.recordId || '';
+    closeDemoCompletionModal({ reason: 'returned_to_crate' });
+    openDemoMyCrateAfterPurchase(recordId);
+  });
+  completionModal?.addEventListener('click', event => {
+    if (event.target === completionModal) closeDemoCompletionModal();
+  });
   document.addEventListener('keydown', event => {
-    if (event.key === 'Escape' && !modal.classList.contains('hidden')) {
+    if (event.key !== 'Escape') return;
+    if (completionModal && !completionModal.classList.contains('hidden')) {
+      closeDemoCompletionModal({ reason: 'escape' });
+      return;
+    }
+    if (!modal.classList.contains('hidden')) {
       closeDemoCheckoutModal({ reason: 'escape' });
     }
   });
@@ -1833,6 +2054,7 @@ function manageCrateRecord(recordId, action) {
 }
 
 function startCheckoutFromAgent() {
+  const activeDemoItemBeforeView = getActiveUserCrateItem();
   const view = showMyCrateView();
   if (!view.ok) return view;
 
@@ -1856,8 +2078,23 @@ function startCheckoutFromAgent() {
 
   const overlayActive = isLemonOverlayEnabled();
   const demoSimulatorActive = isDemoCheckoutSimulatorEnabled();
-  const activeDemoItem = getActiveUserCrateItem();
+  const activeDemoItem = getActiveUserCrateItem()
+    || activeDemoItemBeforeView
+    || (demoSimulatorActive
+      ? getOrderedUserCrateSlugs({ excludeAnimating: false })
+        .map(recordId => findMasterCatalogItem(recordId))
+        .find(item => item && getDemoPurchaseForRecord(item))
+      : null);
   const activeDemoPurchase = activeDemoItem ? getDemoPurchaseForRecord(activeDemoItem) : null;
+
+  if (demoSimulatorActive && activeDemoItem && !userIsSelected) {
+    const orderedItems = getOrderedUserCrateSlugs({ excludeAnimating: false });
+    const itemIndex = orderedItems.indexOf(getCrateRecordId(activeDemoItem));
+    if (itemIndex >= 0) {
+      userActiveIndex = itemIndex;
+      selectRecord(itemIndex);
+    }
+  }
 
   diagnostics.record('ui', 'checkout_trigger_activated', {
     source: 'agent',
@@ -1866,22 +2103,16 @@ function startCheckoutFromAgent() {
     total_cents: checkoutSummary.total_cents
   }, { snapshot: true });
 
-  // Use the same visible control and click handler as a human interaction.
-  // The handler creates the Lemon session and redirects; it never completes
-  // the purchase itself.
+  // The handler keeps the demo boundary on the same visible player surface;
+  // it never exposes an audio file.
   if (demoSimulatorActive && activeDemoPurchase) {
-    const downloaded = downloadDemoRelease(activeDemoItem);
     return {
-      ok: downloaded,
       ...checkoutSummary,
+      ...completeDemoReleasePreview(activeDemoItem, { source: 'agent' }),
       view: 'my_crate',
-      status: downloaded ? 'demo_download_started' : 'demo_download_unavailable',
       checkout_started: false,
       purchase_started: false,
-      download_started: downloaded,
-      record_id: getCrateRecordId(activeDemoItem),
-      order_id: activeDemoPurchase.order_id,
-      next_step: downloaded ? 'The package download has started.' : 'Select the purchased release again before downloading.'
+      checkout_surface: 'demo_simulator'
     };
   }
   demoCheckoutRequestedByAgent = demoSimulatorActive;
@@ -2959,16 +3190,11 @@ function initUI() {
       const activeDemoItem = getActiveUserCrateItem();
       const activeDemoPurchase = activeDemoItem ? getDemoPurchaseForRecord(activeDemoItem) : null;
       if (activeDemoPurchase) {
-        const downloaded = downloadDemoRelease(activeDemoItem);
         return {
-          ok: downloaded,
-          status: downloaded ? 'demo_download_started' : 'demo_download_unavailable',
+          ...completeDemoReleasePreview(activeDemoItem, { source: 'human' }),
           checkout_started: false,
           purchase_started: false,
-          download_started: downloaded,
-          record_id: getCrateRecordId(activeDemoItem),
-          order_id: activeDemoPurchase.order_id,
-          next_step: downloaded ? 'The demo package download has started.' : 'Select the purchased release again before downloading.'
+          checkout_surface: 'demo_simulator'
         };
       }
       const opened = openDemoCheckoutModal(validItems);
@@ -4571,6 +4797,12 @@ function getUiContext() {
   const checkoutSurface = isDemoCheckoutSimulatorEnabled()
     ? 'demo_simulator'
     : isLemonOverlayEnabled() ? 'lemon_overlay' : 'lemon_redirect';
+  const demoCompletion = getDemoCompletionState();
+  const activeRecordId = activeRecord ? getCrateRecordId(activeRecord) : '';
+  const demoBoundaryReached = Boolean(
+    (activeRecordId && demoCompletedRecordIds.has(activeRecordId))
+      || (demoCompletion.record_id && demoCompletedRecordIds.has(demoCompletion.record_id))
+  );
   const myCrateIds = readLocalCrateItems();
 
   return {
@@ -4593,9 +4825,22 @@ function getUiContext() {
     checkout: {
       open: checkoutOpen,
       step: checkoutOpen ? checkoutModal?.dataset.step || 'checkout' : null,
+      purchase_complete: checkoutOpen && checkoutModal?.dataset.step === 'success',
       source: checkoutOpen ? checkoutModal?.dataset.source || 'human' : null,
       surface: checkoutSurface
     },
+    demo: isDemoCheckoutSimulatorEnabled()
+      ? {
+        simulator: true,
+        preview_boundary_reached: demoBoundaryReached,
+        preview_boundary_message: demoBoundaryReached
+          ? demoCompletion.message || DEMO_END_MESSAGE
+          : null,
+        completion_modal_open: demoCompletion.open,
+        completion_modal_record_id: demoCompletion.record_id,
+        audio_download_available: false
+      }
+      : { simulator: false },
     agent_focus_record_ids: [...agentFocusRecordIds],
     player: {
       track_id: currentPlayingTrackId,
@@ -6007,7 +6252,11 @@ function updateUIControlsState() {
     checkoutBtn.disabled = !checkoutEnabled || checkoutInFlight;
     checkoutBtn.setAttribute('aria-disabled', String(!checkoutEnabled || checkoutInFlight));
     checkoutBtn.title = checkoutEnabled
-      ? activeDemoPurchase ? 'Download the purchased demo package' : 'Review checkout for the records in My Crate'
+      ? activeDemoPurchase
+        ? demoCompletedRecordIds.has(getCrateRecordId(activeDemoItem))
+          ? 'The demo preview has reached its end'
+          : 'Reach the end of the demo preview'
+        : 'Review checkout for the records in My Crate'
       : 'Add a record to My Crate before checkout';
   }
 
@@ -6022,7 +6271,11 @@ function updateUIControlsState() {
     panelCheckoutBtn.disabled = !checkoutEnabled || checkoutInFlight;
     panelCheckoutBtn.setAttribute('aria-disabled', String(!checkoutEnabled || checkoutInFlight));
     panelCheckoutBtn.title = checkoutEnabled
-      ? activeDemoPurchase ? 'Download the purchased demo package' : 'Review checkout for the records in My Crate'
+      ? activeDemoPurchase
+        ? demoCompletedRecordIds.has(getCrateRecordId(activeDemoItem))
+          ? 'The demo preview has reached its end'
+          : 'Reach the end of the demo preview'
+        : 'Review checkout for the records in My Crate'
       : 'Add a record to My Crate before checkout';
   }
 
