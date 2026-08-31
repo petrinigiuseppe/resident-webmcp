@@ -1,6 +1,6 @@
 /* --- 3D Vinyl Crate digging (Beta) crate.js --- */
 import * as THREE from './vendor/three.module.js';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m46';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m47';
 
 diagnostics.record('runtime', 'crate_module_loaded', { build_version: WEBMCP_BUILD_VERSION });
 
@@ -2443,6 +2443,7 @@ function initUI() {
       const baseSlug = getCatalogProductSlug(firstItem) || validSlugs[0];
 
       const overlayEnabled = isLemonOverlayEnabled();
+      const checkoutTheme = overlayEnabled ? getResolvedTheme() : '';
 
       const params = new URLSearchParams();
       params.set('slug', baseSlug);
@@ -2453,6 +2454,7 @@ function initUI() {
       params.set('return_to', '/');
       if (overlayEnabled) {
         params.set('embed', '1');
+        params.set('checkout_theme', checkoutTheme);
       }
 
       const customName = (titles.length > 1 ? `Crate: ${titles.join(', ')}` : (firstItem ? firstItem.title : '')).slice(0, 140);
@@ -2515,6 +2517,7 @@ function initUI() {
                 source: triggerButton.id,
                 cart_count: validItems.length,
                 total_cents: sumCents,
+                theme: checkoutTheme,
                 destination: 'lemon_overlay'
               }, { snapshot: true });
               return {
@@ -2523,7 +2526,8 @@ function initUI() {
                 checkout_started: true,
                 purchase_started: false,
                 cart_count: validItems.length,
-                total_cents: sumCents
+                total_cents: sumCents,
+                checkout_theme: checkoutTheme
               };
             }
           } catch (overlayErr) {
