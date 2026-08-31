@@ -1,6 +1,6 @@
 /* --- 3D Vinyl Crate digging (Beta) crate.js --- */
 import * as THREE from './vendor/three.module.js';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260830-webmcp-m45';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m46';
 
 diagnostics.record('runtime', 'crate_module_loaded', { build_version: WEBMCP_BUILD_VERSION });
 
@@ -77,6 +77,116 @@ let userActiveIndex = 0;
 let userIsSelected = false;
 let hasInteracted = false;
 let checkoutInFlight = false;
+let lemonJsLoadPromise = null;
+let lemonSqueezySetupDone = false;
+const lemonOverlayCallbacks = {
+  onClose: null,
+  onSuccess: null
+};
+
+function isLemonOverlayEnabled() {
+  try {
+    // The embedded checkout is a demo/local surface only. The live domain
+    // must keep its normal hosted redirect even if a query flag is present.
+    if (typeof window === 'undefined' || !/^(127\.0\.0\.1|localhost|demo\.sephmartin\.com)$/.test(window.location.hostname)) return false;
+    if (window.__LEMON_OVERLAY_ENABLED__ === true) return true;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('lemon_overlay') === '1' || params.get('checkout_overlay') === '1') return true;
+    if (params.get('lemon_overlay') === '0' || params.get('checkout_overlay') === '0') return false;
+    return localStorage.getItem('sm_lemon_overlay') === '1' || localStorage.getItem('sm_checkout_overlay') === '1';
+  } catch {
+    return false;
+  }
+}
+
+function loadLemonJs() {
+  if (typeof window === 'undefined') return Promise.reject(new Error('No window'));
+  if (window.LemonSqueezy?.Url?.Open) return Promise.resolve(window.LemonSqueezy);
+  if (lemonJsLoadPromise) return lemonJsLoadPromise;
+
+  lemonJsLoadPromise = new Promise((resolve, reject) => {
+    if (typeof window.createLemonSqueezy === 'function') {
+      try {
+        window.createLemonSqueezy();
+        if (window.LemonSqueezy?.Url?.Open) return resolve(window.LemonSqueezy);
+      } catch {}
+    }
+
+    const existing = document.querySelector('script[src*="lemonsqueezy.com/js/lemon.js"]');
+    if (existing) {
+      const resolveExisting = () => {
+        if (typeof window.createLemonSqueezy === 'function') window.createLemonSqueezy();
+        if (window.LemonSqueezy?.Url?.Open) resolve(window.LemonSqueezy);
+        else reject(new Error('LemonSqueezy.Url.Open unavailable after script load'));
+      };
+      if (window.LemonSqueezy?.Url?.Open) {
+        resolveExisting();
+        return;
+      }
+      existing.addEventListener('load', resolveExisting, { once: true });
+      existing.addEventListener('error', () => reject(new Error('Failed to load Lemon.js')), { once: true });
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = 'https://app.lemonsqueezy.com/js/lemon.js';
+    script.async = true;
+    script.defer = true;
+    script.onload = () => {
+      try {
+        if (typeof window.createLemonSqueezy === 'function') {
+          window.createLemonSqueezy();
+        }
+        if (window.LemonSqueezy?.Url?.Open) {
+          resolve(window.LemonSqueezy);
+        } else {
+          reject(new Error('LemonSqueezy.Url.Open unavailable'));
+        }
+      } catch (err) {
+        reject(err);
+      }
+    };
+    script.onerror = () => reject(new Error('Failed to load Lemon.js'));
+    document.head.appendChild(script);
+  });
+
+  return lemonJsLoadPromise;
+}
+
+async function openLemonOverlay(checkoutUrl, callbacks = {}) {
+  lemonOverlayCallbacks.onClose = callbacks.onClose || null;
+  lemonOverlayCallbacks.onSuccess = callbacks.onSuccess || null;
+
+  const lemon = await loadLemonJs();
+  if (!lemon || typeof lemon.Url?.Open !== 'function') {
+    throw new Error('LemonSqueezy.Url.Open is not available');
+  }
+
+  if (!lemonSqueezySetupDone && typeof lemon.Setup === 'function') {
+    try {
+      lemon.Setup({
+        eventHandler: (event) => {
+          const eventName = event?.event;
+          if (eventName === 'Checkout.Closed') {
+            if (typeof lemonOverlayCallbacks.onClose === 'function') {
+              lemonOverlayCallbacks.onClose(event?.data);
+            }
+          } else if (eventName === 'Checkout.Success') {
+            if (typeof lemonOverlayCallbacks.onSuccess === 'function') {
+              lemonOverlayCallbacks.onSuccess(event?.data);
+            }
+          }
+        }
+      });
+      lemonSqueezySetupDone = true;
+    } catch (e) {
+      console.warn('LemonSqueezy.Setup warning:', e);
+    }
+  }
+
+  lemon.Url.Open(checkoutUrl);
+  return true;
+}
 
 // Agent-native visual state. WebMCP owns the state transition; the renderer
 // only responds to it so the normal human interaction path stays intact.
@@ -1240,15 +1350,18 @@ function startCheckoutFromAgent() {
   // the purchase itself.
   trigger.click();
 
+  const overlayActive = isLemonOverlayEnabled();
   return {
     ok: true,
     ...checkoutSummary,
     view: 'my_crate',
-    status: 'redirecting',
+    status: 'starting',
     checkout_started: true,
     purchase_started: false,
     human_confirmation_required: false,
-    next_step: 'Complete the purchase on the Lemon checkout page.'
+    next_step: overlayActive
+      ? 'Complete the purchase in the Lemon checkout overlay.'
+      : 'Complete the purchase on the Lemon checkout page.'
   };
 }
 
@@ -2329,6 +2442,8 @@ function initUI() {
       const validSlugs = validItems.map(getCatalogProductSlug);
       const baseSlug = getCatalogProductSlug(firstItem) || validSlugs[0];
 
+      const overlayEnabled = isLemonOverlayEnabled();
+
       const params = new URLSearchParams();
       params.set('slug', baseSlug);
       params.set('cart_items', String(validItems.length));
@@ -2336,6 +2451,9 @@ function initUI() {
       params.set('cart_slugs', validSlugs.join(','));
       params.set('cart_lines', JSON.stringify(cartLines));
       params.set('return_to', '/');
+      if (overlayEnabled) {
+        params.set('embed', '1');
+      }
 
       const customName = (titles.length > 1 ? `Crate: ${titles.join(', ')}` : (firstItem ? firstItem.title : '')).slice(0, 140);
       if (customName) {
@@ -2357,19 +2475,71 @@ function initUI() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            event: 'checkout_redirect',
+            event: overlayEnabled ? 'checkout_overlay_requested' : 'checkout_redirect',
             session_id: localStorage.getItem('seph_martin_session') || '',
             item_slug: baseSlug
           }),
           keepalive: true
         }).catch(() => {});
+
+        pauseAudio();
+
+        if (overlayEnabled) {
+          try {
+            const opened = await openLemonOverlay(data.url, {
+              onClose: () => {
+                checkoutInFlight = false;
+                checkoutTriggers.forEach(button => {
+                  const defaultContent = checkoutDefaultContent.get(button);
+                  if (defaultContent) button.innerHTML = defaultContent;
+                  button.disabled = false;
+                  button.removeAttribute('aria-disabled');
+                });
+                updateUIControlsState();
+                diagnostics.record('ui', 'checkout_overlay_closed', {
+                  cart_count: validItems.length,
+                  total_cents: sumCents
+                }, { snapshot: true });
+              },
+              onSuccess: (eventData) => {
+                diagnostics.record('ui', 'checkout_overlay_success', {
+                  cart_count: validItems.length,
+                  total_cents: sumCents,
+                  event_data: eventData
+                }, { snapshot: true });
+              }
+            });
+
+            if (opened) {
+              diagnostics.record('ui', 'checkout_overlay_opened', {
+                source: triggerButton.id,
+                cart_count: validItems.length,
+                total_cents: sumCents,
+                destination: 'lemon_overlay'
+              }, { snapshot: true });
+              return {
+                ok: true,
+                status: 'overlay_opened',
+                checkout_started: true,
+                purchase_started: false,
+                cart_count: validItems.length,
+                total_cents: sumCents
+              };
+            }
+          } catch (overlayErr) {
+            console.warn("Lemon overlay open failed, falling back to hosted redirect:", overlayErr);
+            diagnostics.record('ui', 'checkout_overlay_fallback_redirect', {
+              reason: String(overlayErr?.message || overlayErr)
+            });
+          }
+        }
+
         diagnostics.record('ui', 'checkout_redirect_started', {
           source: triggerButton.id,
           cart_count: validItems.length,
           total_cents: sumCents,
           destination: 'lemon_checkout'
         }, { snapshot: true });
-        pauseAudio();
         window.location.href = data.url;
         return {
           ok: true,

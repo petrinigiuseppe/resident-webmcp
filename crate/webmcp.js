@@ -15,8 +15,8 @@ import {
   getAgentStatusText,
   isPassiveAgentStatus,
   resolveAgentOperation
-} from './agent-state.js?v=20260830-webmcp-m45';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260830-webmcp-m45';
+} from './agent-state.js?v=20260831-webmcp-m46';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m46';
 
 const MAX_TOOL_OUTPUT_RECORDS = 12;
 const ACTIVE_STATES = new Set(['loading', 'active', 'busy', 'standby']);
@@ -1596,7 +1596,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   await registerTool(modelContext, {
     name: 'start_checkout',
     title: 'Start Lemon checkout for My Crate',
-    description: 'For an explicit request such as "buy my crate", activates the visible BUY CRATE control, creates the Lemon checkout session and redirects this tab to Lemon. It does not complete the purchase; payment remains on the Lemon checkout page.',
+    description: 'For an explicit request such as "buy my crate", activates the visible BUY CRATE control and starts the Lemon checkout. In the demo/local overlay preview it opens inside the current site; otherwise it redirects this tab to Lemon. It does not complete the purchase; payment remains on the Lemon checkout surface.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: uiMutation,
     async execute() {
