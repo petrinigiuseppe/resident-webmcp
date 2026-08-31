@@ -19,6 +19,7 @@ export const AGENT_OPERATION_LABELS = Object.freeze({
   focusing: 'Moving picks',
   inspecting: 'Inspecting',
   curating: 'Curating',
+  grabbing: 'Grabbing the crate',
   preparing: 'Preparing review',
   human_override: 'Human override',
   returning: 'Releasing'

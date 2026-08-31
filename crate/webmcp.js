@@ -15,8 +15,8 @@ import {
   getAgentStatusText,
   isPassiveAgentStatus,
   resolveAgentOperation
-} from './agent-state.js?v=20260831-webmcp-m49';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m49';
+} from './agent-state.js?v=20260831-webmcp-m51';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m51';
 
 const MAX_TOOL_OUTPUT_RECORDS = 12;
 const ACTIVE_STATES = new Set(['loading', 'active', 'busy', 'standby']);
@@ -27,7 +27,7 @@ const DIG_PREVIEW_MS = 420;
 const DRAG_MARGIN_PX = 12;
 const RETURN_FOCUS_CLEAR_MS = 560;
 const RETURN_TO_HUMAN_MS = 960;
-const HUMAN_OVERRIDE_EXCLUSION_SELECTOR = '#agent-mode-hud, #mobile-agent-hint, #agent-debug-panel, #agent-debug-trigger, #site-diagnostics-download, #details-panel, [data-agent-debug-action]';
+const HUMAN_OVERRIDE_EXCLUSION_SELECTOR = '#agent-mode-hud, #mobile-agent-hint, #agent-debug-panel, #agent-debug-trigger, #site-diagnostics-download, #details-panel, #demo-checkout-modal, [data-agent-debug-action]';
 
 let agentState = 'human';
 let agentOperation = 'human';
@@ -75,7 +75,7 @@ function inferAgentOperation(state, text = '') {
     if (normalized.includes('orient')) return 'orienting';
     if (normalized.includes('bring') || normalized.includes('front')) return 'focusing';
     if (normalized.includes('add') || normalized.includes('remov')) return 'curating';
-    if (normalized.includes('checkout')) return 'preparing';
+    if (normalized.includes('grabbing') || normalized.includes('checkout')) return 'grabbing';
     return 'thinking';
   }
 
@@ -473,11 +473,40 @@ async function withAgentActivity(text, work, detail = {}) {
   if (sessionResult?.ok === false) return sessionResult;
 
   armBusy(text, detail);
+  let holdActivity = false;
   try {
-    return await work();
+    const result = await work();
+    holdActivity = Boolean(result?.keep_agent_active);
+    return result;
   } finally {
-    releaseBusy();
+    if (!holdActivity) releaseBusy();
   }
+}
+
+function releaseHeldDemoCheckoutActivity(reason = 'demo_checkout_finished') {
+  if (activityDepth <= 0) return;
+  activityDepth = 0;
+  if (agentState === 'busy' || agentOperation === 'grabbing') {
+    setAgentState('active', { operation: 'idle', text: reason });
+  }
+}
+
+function installDemoCheckoutPresence() {
+  window.addEventListener('seph-demo-checkout-opened', event => {
+    if (event.detail?.source !== 'agent') return;
+    if (agentState === 'human' || agentState === 'override') return;
+    clearAgentIntro();
+    setAgentState('busy', { text: 'Grabbing the crate', operation: 'grabbing' });
+  });
+
+  const release = event => {
+    if (event.detail?.source !== 'agent') return;
+    releaseHeldDemoCheckoutActivity(event.type === 'seph-demo-checkout-closed'
+      ? 'Checkout dismissed'
+      : 'Demo purchase complete');
+  };
+  window.addEventListener('seph-demo-checkout-closed', release);
+  window.addEventListener('seph-demo-checkout-completed', release);
 }
 
 async function ensureAgentSession(intent = 'resume curator request') {
@@ -1596,12 +1625,23 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   await registerTool(modelContext, {
     name: 'start_checkout',
     title: 'Start Lemon checkout for My Crate',
-    description: 'For an explicit request such as "buy my crate", activates the visible BUY CRATE control and starts the Lemon checkout. In the demo/local overlay preview it opens inside the current site; otherwise it redirects this tab to Lemon. It does not complete the purchase; payment remains on the Lemon checkout surface.',
+    description: 'For an explicit request such as "buy my crate", activates the visible checkout control. On the hackathon demo it opens the short on-site simulator with a pre-signed-in demo profile; otherwise it opens the Lemon overlay or redirects this tab to Lemon. It never completes a real purchase.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: uiMutation,
     async execute() {
-      return withAgentActivity('Opening Lemon checkout', async () => api.startCheckout?.()
-        || resultError('CHECKOUT_UNAVAILABLE', 'The My Crate checkout control is not available.'));
+      const result = await withAgentActivity('Grabbing the crate', async () => {
+        const checkout = api.startCheckout?.()
+          || resultError('CHECKOUT_UNAVAILABLE', 'The My Crate checkout control is not available.');
+        if (checkout?.status === 'demo_checkout_opened') {
+          return { ...checkout, keep_agent_active: true };
+        }
+        return checkout;
+      });
+      if (result?.keep_agent_active) {
+        const { keep_agent_active: _keepAgentActive, ...publicResult } = result;
+        return publicResult;
+      }
+      return result;
     }
   });
 
@@ -1651,6 +1691,7 @@ async function boot() {
     page_session_id: diagnostics.pageSessionId
   });
   installHumanOverride();
+  installDemoCheckoutPresence();
   installAgentSoundControl();
   installAgentHudDrag();
   installAgentAudioUnlock();

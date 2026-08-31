@@ -913,13 +913,8 @@
     color: var(--text-primary) !important;
   }
 
-  .demo-checkout-kicker,
   .demo-checkout-success-mark {
     color: #176b2a !important;
-  }
-
-  .demo-checkout-rule {
-    background-color: #176b2a;
   }
 
   .demo-checkout-success-mark {
@@ -951,7 +946,56 @@
   }
 
   .demo-checkout-lines,
+  .demo-checkout-total-row {
+    border-color: rgba(0, 0, 0, 0.1) !important;
+    background: rgba(0, 0, 0, 0.025) !important;
+  }
+
   .demo-checkout-line,
   .demo-checkout-order-row {
+    border-color: rgba(0, 0, 0, 0.08) !important;
+  }
+
+  .demo-checkout-summary-divider {
+    background: rgba(0, 0, 0, 0.1) !important;
+  }
+
+  .demo-checkout-summary-note {
+    color: var(--text-secondary) !important;
+  }
+
+  .demo-checkout-profile-label {
+    color: #617067 !important;
+  }
+
+  .demo-checkout-profile-card {
+    border-bottom-color: rgba(0, 0, 0, 0.09) !important;
+    background: transparent !important;
+  }
+
+  .demo-checkout-profile-grid {
     border-color: rgba(0, 0, 0, 0.1) !important;
+    background: rgba(0, 0, 0, 0.025) !important;
+  }
+
+  .demo-checkout-profile-icon {
+    background: rgba(23, 107, 42, 0.06) !important;
+    color: #617067 !important;
+  }
+
+  .demo-checkout-profile-card-payment .demo-checkout-profile-icon {
+    color: #176b2a !important;
+  }
+
+  .demo-checkout-profile-content > span:not(.demo-checkout-profile-label) {
+    color: var(--text-secondary) !important;
+  }
+
+  .demo-checkout-line-meta {
+    color: var(--text-dim) !important;
+  }
+
+  .demo-checkout-line-cover {
+    border-color: rgba(0, 0, 0, 0.1) !important;
+    background: rgba(0, 0, 0, 0.035) !important;
   }
