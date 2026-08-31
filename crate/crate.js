@@ -1,6 +1,6 @@
 /* --- 3D Vinyl Crate digging (Beta) crate.js --- */
 import * as THREE from './vendor/three.module.js';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m47';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m48';
 
 diagnostics.record('runtime', 'crate_module_loaded', { build_version: WEBMCP_BUILD_VERSION });
 
@@ -166,8 +166,12 @@ async function openLemonOverlay(checkoutUrl, callbacks = {}) {
     try {
       lemon.Setup({
         eventHandler: (event) => {
-          const eventName = event?.event;
-          if (eventName === 'Checkout.Closed') {
+          const eventName = typeof event === 'string' ? event : event?.event;
+          const isCloseEvent = event === 'close'
+            || eventName === 'close'
+            || eventName === 'Checkout.Closed'
+            || eventName === 'PaymentMethodUpdate.Closed';
+          if (isCloseEvent) {
             if (typeof lemonOverlayCallbacks.onClose === 'function') {
               lemonOverlayCallbacks.onClose(event?.data);
             }
