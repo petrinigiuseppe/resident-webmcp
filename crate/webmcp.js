@@ -15,8 +15,8 @@ import {
   getAgentStatusText,
   isPassiveAgentStatus,
   resolveAgentOperation
-} from './agent-state.js?v=20260831-webmcp-m56';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m56';
+} from './agent-state.js?v=20260831-webmcp-m68';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m68';
 
 const MAX_TOOL_OUTPUT_RECORDS = 12;
 const ACTIVE_STATES = new Set(['loading', 'active', 'busy', 'standby']);
@@ -27,7 +27,7 @@ const DIG_PREVIEW_MS = 420;
 const DRAG_MARGIN_PX = 12;
 const RETURN_FOCUS_CLEAR_MS = 560;
 const RETURN_TO_HUMAN_MS = 960;
-const HUMAN_OVERRIDE_EXCLUSION_SELECTOR = '#agent-mode-hud, #mobile-agent-hint, #agent-debug-panel, #agent-debug-trigger, #site-diagnostics-download, #details-panel, #demo-checkout-modal, #demo-completion-modal, [data-agent-debug-action]';
+const HUMAN_OVERRIDE_EXCLUSION_SELECTOR = '#agent-mode-hud, #mobile-agent-hint, #agent-debug-panel, #agent-debug-trigger, #site-diagnostics-download, #details-panel, #custom-player, #global-player-host, #demo-checkout-modal, #demo-completion-modal, [data-agent-debug-action]';
 
 let agentState = 'human';
 let agentOperation = 'human';
@@ -87,7 +87,10 @@ function updateSoundControl() {
   const toggles = [...document.querySelectorAll('[data-agent-sound-toggle]')];
   root.dataset.agentSound = agentSoundEnabled ? 'on' : 'off';
   toggles.forEach(toggle => {
-    toggle.hidden = agentState === 'human';
+    // The orb owns both visual controls whenever it is visible. The parent
+    // surface already hides them in Human Mode; hiding the mute button here
+    // made it disappear independently from the disco toggle during a session.
+    toggle.hidden = false;
     toggle.setAttribute('aria-pressed', String(agentSoundEnabled));
     toggle.setAttribute(
       'aria-label',
@@ -347,6 +350,7 @@ function renderAgentState(detail = {}) {
   const label = document.getElementById('agent-mode-label');
   const detailEl = document.getElementById('agent-mode-detail');
   const mobileLabel = document.getElementById('mobile-agent-hint-mode');
+  const mobileOperation = document.getElementById('mobile-agent-hint-operation');
   const live = document.getElementById('agent-mode-live');
   const labels = {
     human: 'HUMAN MODE',
@@ -377,10 +381,14 @@ function renderAgentState(detail = {}) {
   if (label) label.textContent = labels[state] || labels.human;
   if (detailEl) detailEl.textContent = hudDetail;
   if (mobileLabel) {
-    if (state === 'human' || state === 'override') {
-      mobileLabel.textContent = labels[state] || labels.human;
-    } else {
-      mobileLabel.textContent = getAgentStatusText(state, agentOperation);
+    const statusText = state === 'human' || state === 'override'
+      ? labels[state] || labels.human
+      : getAgentStatusText(state, agentOperation);
+    const separator = statusText.indexOf(' · ');
+    mobileLabel.textContent = separator === -1 ? statusText : statusText.slice(0, separator);
+    if (mobileOperation) {
+      mobileOperation.textContent = separator === -1 ? '' : statusText.slice(separator + 3);
+      mobileOperation.hidden = separator === -1;
     }
   }
   updateAgentPresenceVisibility();
@@ -416,6 +424,22 @@ function syncAgentPlaybackFromApi(api) {
 
 window.addEventListener('seph-player-state', event => {
   syncAgentPlaybackPresence(event.detail?.is_playing === true);
+});
+
+window.addEventListener('seph-human-player-input', event => {
+  if (!ACTIVE_STATES.has(agentState) || debugActionPromise !== null) return;
+  const api = getCrateApi();
+  if (!api) return;
+  diagnostics.record('session', 'human_player_override', {
+    source: event.detail?.source || 'player_control',
+    track_id: event.detail?.track_id || null,
+    release_record_id: event.detail?.release_record_id || null
+  }, { snapshot: true });
+  void returnToHumanMode(api).catch(error => {
+    diagnostics.record('session', 'human_player_override_failed', {
+      message: String(error?.message || error)
+    });
+  });
 });
 
 function nextPaint() {
@@ -815,6 +839,8 @@ function installDragHandle(element, handle = element, { desktopOnly = true } = {
     const offsetY = event.clientY - rect.top;
     const pointerId = event.pointerId;
     const margin = DRAG_MARGIN_PX;
+    let latestMoveEvent = null;
+    let moveFrame = 0;
 
     element.style.left = `${rect.left}px`;
     element.style.top = `${rect.top}px`;
@@ -823,8 +849,8 @@ function installDragHandle(element, handle = element, { desktopOnly = true } = {
     element.style.transform = 'translate3d(0, 0, 0) scale(1)';
     element.classList.add('is-dragging');
 
-    const onMove = moveEvent => {
-      if (moveEvent.pointerId !== pointerId) return;
+    const applyMove = moveEvent => {
+      if (!moveEvent || moveEvent.pointerId !== pointerId) return;
       const maxLeft = window.innerWidth - rect.width - margin;
       const maxTop = window.innerHeight - rect.height - margin;
       const nextLeft = clamp(moveEvent.clientX - offsetX, margin, maxLeft);
@@ -833,11 +859,28 @@ function installDragHandle(element, handle = element, { desktopOnly = true } = {
       element.style.top = `${nextTop}px`;
     };
 
+    const onMove = moveEvent => {
+      if (moveEvent.pointerId !== pointerId) return;
+      latestMoveEvent = moveEvent;
+      if (moveFrame) return;
+      moveFrame = window.requestAnimationFrame(() => {
+        moveFrame = 0;
+        const pendingMove = latestMoveEvent;
+        latestMoveEvent = null;
+        applyMove(pendingMove);
+      });
+    };
+
     const onEnd = endEvent => {
       if (endEvent?.pointerId !== undefined && endEvent.pointerId !== pointerId) return;
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onEnd);
       window.removeEventListener('pointercancel', onEnd);
+      if (moveFrame) {
+        window.cancelAnimationFrame(moveFrame);
+        moveFrame = 0;
+      }
+      latestMoveEvent = null;
       if (handle.hasPointerCapture?.(pointerId)) handle.releasePointerCapture(pointerId);
       element.classList.remove('is-dragging');
     };
@@ -847,7 +890,12 @@ function installDragHandle(element, handle = element, { desktopOnly = true } = {
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onEnd);
     window.addEventListener('pointercancel', onEnd);
-    handle.setPointerCapture?.(pointerId);
+    try {
+      handle.setPointerCapture?.(pointerId);
+    } catch {
+      // Synthetic pointer checks do not own a native pointer to capture;
+      // real pointer input still uses capture for uninterrupted dragging.
+    }
     event.preventDefault();
   });
 }
@@ -1055,6 +1103,45 @@ function searchCatalog(query, maxResults = MAX_TOOL_OUTPUT_RECORDS) {
     })
     .slice(0, Math.max(1, Math.min(24, Number(maxResults) || MAX_TOOL_OUTPUT_RECORDS)))
     .map(getItemSummary);
+}
+
+function isRandomSelectionRequest(query, selection = 'match') {
+  const normalizedSelection = trimText(selection, 20).toLowerCase();
+  if (normalizedSelection === 'random') return true;
+  return /\b(random|surprise)\b/.test(normalizeCatalogSearchText(query));
+}
+
+function getRandomCatalogSelection(query, maxResults = 1) {
+  const normalizedQuery = normalizeCatalogSearchText(query)
+    .replace(/\b(random|surprise|something|anything|give me|pick|choose|for me|me)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const allRecords = getCatalog();
+  const scopedRecords = normalizedQuery
+    ? allRecords.filter(item => {
+      const searchable = normalizeCatalogSearchText([
+        item.title,
+        item.artist,
+        item.release_category,
+        item.release_category_label,
+        ...(Array.isArray(item.bandcamp_tags) ? item.bandcamp_tags : [])
+      ].join(' '));
+      return searchable.includes(normalizedQuery);
+    })
+    : allRecords;
+  const pool = scopedRecords.length > 0 ? scopedRecords : (normalizedQuery ? allRecords : scopedRecords);
+  if (pool.length === 0) return { results: [], pool_count: 0 };
+
+  const requestedCount = Math.max(1, Math.min(24, Number(maxResults) || 1));
+  const shuffled = pool.slice();
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+  return {
+    results: shuffled.slice(0, requestedCount).map(getItemSummary),
+    pool_count: pool.length
+  };
 }
 
 function normalizeCatalogSearchText(value) {
@@ -1267,24 +1354,39 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   await registerTool(modelContext, {
     name: 'search_catalog',
     title: 'Search visible catalog',
-    description: 'Searches the existing crate surface by release title, artist or curated release category (Original by Seph, Remixes, Edits or Mixed release), then opens the first match in the existing Song sidebar. Use navigation=digging for a bounded, real sleeve-by-sleeve reveal; auto uses direct focus for an exact title and digging for broader queries. Use navigation=direct when speed matters. Use dig_by_descriptor for metadata DNA matching.',
+    description: 'Searches the existing crate surface by release title, artist or curated release category (Original by Seph, Remixes, Edits or Mixed release), then opens the first match in the existing Song sidebar. Use selection=random, or say random/surprise, to choose a random release (optionally scoped by the query) and reveal it through the bounded digging animation. For a normal search, use navigation=digging for a bounded sleeve-by-sleeve reveal; auto uses direct focus for an exact title and digging for broader queries. Use navigation=direct when speed matters. Use dig_by_descriptor for metadata DNA matching.',
     inputSchema: {
       type: 'object',
       properties: {
-        query: { type: 'string', minLength: 1, maxLength: 200 },
+        query: { type: 'string', maxLength: 200 },
         max_results: { type: 'integer', minimum: 1, maximum: 24 },
         navigation: { type: 'string', enum: ['auto', 'direct', 'digging'] },
-        max_steps: { type: 'integer', minimum: 1, maximum: 12 }
+        max_steps: { type: 'integer', minimum: 1, maximum: 12 },
+        selection: { type: 'string', enum: ['match', 'random'] }
       },
-      required: ['query'],
       additionalProperties: false
     },
     annotations: uiMutation,
     async execute(input = {}) {
       const query = trimText(input.query, 200);
-      if (!query) return resultError('INVALID_QUERY', 'A non-empty catalog query is required.');
-      const results = searchCatalog(query, input.max_results);
-      const navigationMode = resolveSearchNavigationMode(query, results, input.navigation);
+      const selection = trimText(input.selection, 20).toLowerCase() || 'match';
+      if (!['match', 'random'].includes(selection)) {
+        return resultError('INVALID_SELECTION_MODE', 'selection must be match or random.');
+      }
+      const randomMode = isRandomSelectionRequest(query, selection);
+      if (!randomMode && !query) return resultError('INVALID_QUERY', 'A non-empty catalog query is required unless selection=random.');
+      const randomSelection = randomMode
+        ? getRandomCatalogSelection(query, input.max_results)
+        : null;
+      const results = randomMode
+        ? randomSelection.results
+        : searchCatalog(query, input.max_results);
+      if (randomMode && results.length === 0) {
+        return resultError('NO_RANDOM_RECORDS', 'No catalog records are available for a random selection.');
+      }
+      const navigationMode = randomMode
+        ? 'digging'
+        : resolveSearchNavigationMode(query, results, input.navigation);
       if (!navigationMode) {
         return resultError('INVALID_NAVIGATION_MODE', 'navigation must be auto, direct, or digging.');
       }
@@ -1293,7 +1395,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
         ? 'Digging through the crate'
         : 'Searching the crate';
       const activityDetail = navigationMode === 'digging'
-        ? { navigation_mode: 'targeted' }
+        ? { navigation_mode: randomMode ? 'random' : 'targeted' }
         : {};
 
       return withAgentActivity(activityText, async () => {
@@ -1311,7 +1413,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
         let sidebarFocus = null;
 
         if (navigationMode === 'digging' && targetId) {
-          const maxSteps = input.max_steps === undefined ? 4 : Number(input.max_steps);
+          const maxSteps = input.max_steps === undefined ? (randomMode ? 12 : 4) : Number(input.max_steps);
           if (!Number.isInteger(maxSteps) || maxSteps < 1 || maxSteps > 12) {
             return resultError('INVALID_BROWSE_STEPS', 'max_steps must be an integer between 1 and 12.');
           }
@@ -1328,10 +1430,10 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
             };
           }
           navigation = navigated.navigation || navigation;
-          api.setSearchQuery(query, { preservePhysicalOrder: true });
+          api.setSearchQuery(randomMode ? '' : query, { preservePhysicalOrder: true });
           sidebarFocus = api.openRecordDetails?.(targetId) || api.focusRecord(targetId);
         } else {
-          api.setSearchQuery(query);
+          api.setSearchQuery(randomMode ? '' : query);
           sidebarFocus = targetId
             ? (api.openRecordDetails?.(targetId) || api.focusRecord(targetId))
             : null;
@@ -1340,8 +1442,11 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
 
         return {
           ok: true,
-          query,
-          search_scope: 'title_and_artist',
+          query: query || null,
+          selection: randomMode ? 'random' : 'match',
+          random: randomMode,
+          random_pool_count: randomMode ? randomSelection.pool_count : null,
+          search_scope: randomMode ? 'random_catalog' : 'title_and_artist',
           results,
           result_count: results.length,
           navigation,
@@ -1443,7 +1548,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   await registerTool(modelContext, {
     name: 'get_player_state',
     title: 'Read preview player state',
-    description: 'Reads the visible preview player transport: current release and track, play/pause status, current position, duration and site audio state. It also reactivates Agent Mode when a resumed command needs it. It does not claim BPM, key or other audio analysis.',
+    description: 'Reads the visible preview player transport: current release and track, play/pause status, current position, duration, previous/next availability, volume and site audio state. It also reactivates Agent Mode when a resumed command needs it. It does not claim BPM, key or other audio analysis.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: uiMutation,
     async execute() {
@@ -1485,9 +1590,57 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
     annotations: uiMutation,
     async execute() {
       return withAgentActivity('Pausing the selected preview', async () => {
-        const player = api.pauseTrack?.();
+        const player = api.pauseTrack?.({ source: 'agent' });
         return player || resultError('PLAYER_UNAVAILABLE', 'The preview player controls are not available.');
       });
+    }
+  });
+
+  await registerTool(modelContext, {
+    name: 'previous_track',
+    title: 'Play the previous track',
+    description: 'Moves the visible preview player to the previous track in the currently loaded release and starts its preview. It does not change My Crate or checkout.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    annotations: uiMutation,
+    async execute() {
+      return withAgentActivity('Playing the previous track', async () => api.previousTrack?.()
+        || resultError('PLAYER_UNAVAILABLE', 'The preview player controls are not available.'));
+    }
+  });
+
+  await registerTool(modelContext, {
+    name: 'next_track',
+    title: 'Play the next track',
+    description: 'Moves the visible preview player to the next track in the currently loaded release and starts its preview. It does not change My Crate or checkout.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    annotations: uiMutation,
+    async execute() {
+      return withAgentActivity('Playing the next track', async () => api.nextTrack?.()
+        || resultError('PLAYER_UNAVAILABLE', 'The preview player controls are not available.'));
+    }
+  });
+
+  await registerTool(modelContext, {
+    name: 'previous_release',
+    title: 'Open the previous release',
+    description: 'Moves the visible Shop crate to the previous release and opens its existing Song sidebar. This is release navigation, not track transport, and it never changes My Crate or checkout.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    annotations: uiMutation,
+    async execute() {
+      return withAgentActivity('Opening the previous release', async () => api.previousRelease?.()
+        || resultError('CATALOG_BROWSE_UNAVAILABLE', 'The release navigation controls are not available.'));
+    }
+  });
+
+  await registerTool(modelContext, {
+    name: 'next_release',
+    title: 'Open the next release',
+    description: 'Moves the visible Shop crate to the next release and opens its existing Song sidebar. This is release navigation, not track transport, and it never changes My Crate or checkout.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    annotations: uiMutation,
+    async execute() {
+      return withAgentActivity('Opening the next release', async () => api.nextRelease?.()
+        || resultError('CATALOG_BROWSE_UNAVAILABLE', 'The release navigation controls are not available.'));
     }
   });
 
@@ -1540,6 +1693,47 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
           player_state: player || null
         };
       });
+    }
+  });
+
+  await registerTool(modelContext, {
+    name: 'set_player_volume',
+    title: 'Set preview player volume',
+    description: 'Sets preview player volume from 0 (silent) to 1 (full). It does not toggle the separate site mute state and never affects My Crate or checkout.',
+    inputSchema: {
+      type: 'object',
+      properties: { volume: { type: 'number', minimum: 0, maximum: 1 } },
+      required: ['volume'],
+      additionalProperties: false
+    },
+    annotations: uiMutation,
+    async execute(input = {}) {
+      if (typeof input.volume !== 'number' || !Number.isFinite(input.volume) || input.volume < 0 || input.volume > 1) {
+        return resultError('INVALID_VOLUME', 'volume must be a number between 0 and 1.');
+      }
+      return withAgentActivity('Adjusting preview volume', async () => api.setPlayerVolume?.(input.volume, { source: 'agent' })
+        || resultError('PLAYER_UNAVAILABLE', 'The preview player controls are not available.'));
+    }
+  });
+
+  await registerTool(modelContext, {
+    name: 'set_orb_visual',
+    title: 'Change the agent orb visual',
+    description: 'Switches the visible Agent orb between the current release cover bubble and a disco-ball visual. Use mode=cover or mode=disco_ball. It does not change playback, My Crate, or checkout.',
+    inputSchema: {
+      type: 'object',
+      properties: { mode: { type: 'string', enum: ['cover', 'disco_ball'] } },
+      required: ['mode'],
+      additionalProperties: false
+    },
+    annotations: uiMutation,
+    async execute(input = {}) {
+      const mode = trimText(input.mode, 20).toLowerCase();
+      if (!['cover', 'disco_ball'].includes(mode)) {
+        return resultError('INVALID_ORB_VISUAL', 'mode must be cover or disco_ball.');
+      }
+      return withAgentActivity('Changing the orb', async () => api.setAgentOrbVisual?.(mode, { source: 'agent' })
+        || resultError('ORB_VISUAL_UNAVAILABLE', 'The agent orb controls are not available.'));
     }
   });
 
@@ -1625,7 +1819,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   await registerTool(modelContext, {
     name: 'start_checkout',
     title: 'Start Lemon checkout for My Crate',
-    description: 'For an explicit request such as "buy my crate", activates the visible checkout control. On the hackathon demo it opens the short on-site simulator with a pre-signed-in demo profile; after a simulated purchase, the purchased release reaches the end-of-demo boundary and reports that no audio file is available. Otherwise it opens the Lemon overlay or redirects this tab to Lemon. It never completes a real purchase.',
+    description: 'For an explicit request such as "buy my crate", activates the visible checkout control. On the hackathon demo it opens the short on-site simulator with a pre-signed-in demo profile and stops at review; wait for an explicit confirmation such as "complete purchase" or "buy now" before calling complete_purchase. Otherwise it opens the Lemon overlay or redirects this tab to Lemon, where the final purchase remains human-controlled.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: uiMutation,
     async execute() {
@@ -1646,6 +1840,62 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   });
 
   await registerTool(modelContext, {
+    name: 'complete_purchase',
+    title: 'Complete purchase / Buy now in the demo checkout',
+    description: 'Completes the visible no-payment demo checkout only after the user explicitly confirms the final action with "complete purchase" or "buy now". Pass confirmed=true only for that explicit confirmation; a missing or false value leaves the checkout at review. This is the final Buy Now / Complete Purchase action for the hackathon demo; it records a simulated order, shows Purchase Complete, and never contacts Lemon or delivers the original audio. Outside the demo simulator it refuses automation and returns the human checkout boundary.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        confirmed: {
+          type: 'boolean',
+          description: 'Required explicit confirmation from the user for the final purchase action.'
+        }
+      },
+      required: ['confirmed'],
+      additionalProperties: false
+    },
+    annotations: uiMutation,
+    async execute(input = {}) {
+      return withAgentActivity('Completing the demo purchase', async () => {
+        if (input.confirmed !== true) {
+          return {
+            ok: false,
+            status: 'purchase_confirmation_required',
+            purchase_started: false,
+            purchase_complete: false,
+            human_confirmation_required: true,
+            checkout_surface: api.status?.().checkout_surface || null,
+            error: {
+              code: 'EXPLICIT_PURCHASE_CONFIRMATION_REQUIRED',
+              message: 'The checkout is waiting for the user to explicitly confirm the final purchase action.'
+            },
+            next_step: 'Wait for an explicit "complete purchase" or "buy now" confirmation, then call complete_purchase with confirmed=true.'
+          };
+        }
+        return api.completePurchase?.()
+          || resultError('PURCHASE_COMPLETION_UNAVAILABLE', 'The purchase completion control is not available.');
+      });
+    }
+  });
+
+  await registerTool(modelContext, {
+    name: 'download_release',
+    title: 'Reach the demo download boundary',
+    description: 'Completes the final download step for a purchased release in the on-site hackathon demo and opens the compact Demo Complete message. The preview intentionally provides no audio file, so this tool never downloads or claims to deliver the original music. Omit record_id to use the currently selected purchased release in My Crate.',
+    inputSchema: {
+      type: 'object',
+      properties: { record_id: { type: 'string', maxLength: 160 } },
+      additionalProperties: false
+    },
+    annotations: uiMutation,
+    async execute(input = {}) {
+      const recordId = trimText(input.record_id, 160);
+      return withAgentActivity('Finishing the demo download', async () => api.downloadDemoRelease?.(recordId)
+        || resultError('DEMO_DOWNLOAD_UNAVAILABLE', 'The demo download boundary is not available.'));
+    }
+  });
+
+  await registerTool(modelContext, {
     name: 'end_curator_session',
     title: 'End Synesthetic Curator session',
     description: 'Returns the page to Human Mode through a soft handoff and clears agent-focused record styling. It does not alter My Crate.',
@@ -1659,7 +1909,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   toolRegistrationComplete = true;
   document.documentElement.dataset.webmcp = 'ready';
   dispatch('seph-webmcp-ready', {
-    tool_count: 19,
+    tool_count: 27,
     model_context_source: modelContextSource,
     tools: [
       'start_curator_session',
@@ -1673,13 +1923,21 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
       'get_player_state',
       'play_track',
       'pause_track',
+      'previous_track',
+      'next_track',
+      'previous_release',
+      'next_release',
       'seek_track',
       'set_audio_mute',
+      'set_player_volume',
+      'set_orb_visual',
       'set_theme',
       'manage_crate',
       'return_to_main_crate',
       'prepare_checkout',
       'start_checkout',
+      'complete_purchase',
+      'download_release',
       'end_curator_session'
     ]
   });

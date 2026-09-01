@@ -186,8 +186,8 @@
     .fallback-card-btn.primary-btn { border-color: #03ff00; color: #03ff00; }
   </style>
   <!-- Stylesheets -->
-  <link id="crate-stylesheet" rel="stylesheet" href="/crate/style.css?v=20260831-webmcp-m56">
-  <link id="crate-light-stylesheet" rel="stylesheet" media="(prefers-color-scheme: light)" href="/crate/light.css?v=20260831-webmcp-m56">
+  <link id="crate-stylesheet" rel="stylesheet" href="/crate/style.css?v=20260831-webmcp-m68">
+  <link id="crate-light-stylesheet" rel="stylesheet" media="(prefers-color-scheme: light)" href="/crate/light.css?v=20260831-webmcp-m68">
   <script>
     (function () {
       var root = document.documentElement;
@@ -239,7 +239,7 @@
           recoveryAttempted = true;
           recoveryTimer = window.setTimeout(function () {
             if (confirmStyles()) return;
-      stylesheet.href = '/crate/style.css?v=20260831-webmcp-m56&recovery=' + Date.now();
+      stylesheet.href = '/crate/style.css?v=20260831-webmcp-m68&recovery=' + Date.now();
           }, 80);
         }
 
@@ -302,6 +302,17 @@
     </svg>
   </div>
 
+  <!-- A tiny static lens filter gives the cover orb a restrained liquid edge
+       without introducing another WebGL scene or an animated displacement. -->
+  <svg id="agent-orb-effects" aria-hidden="true" focusable="false" width="0" height="0" style="position:absolute;width:0;height:0;overflow:hidden;pointer-events:none">
+    <defs>
+      <filter id="agent-orb-liquid" x="-12%" y="-12%" width="124%" height="124%" color-interpolation-filters="sRGB">
+        <feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="1" seed="7" result="orb-noise"></feTurbulence>
+        <feDisplacementMap in="SourceGraphic" in2="orb-noise" scale="2.8" xChannelSelector="R" yChannelSelector="G"></feDisplacementMap>
+      </filter>
+    </defs>
+  </svg>
+
   <!-- Non-WebGL Static Fallback -->
   <div id="static-fallback" class="static-fallback hidden">
     <div class="fallback-content">
@@ -342,6 +353,7 @@
     <div id="mobile-agent-hint" class="mobile-agent-hint" role="status" aria-live="polite" aria-atomic="true" hidden>
       <div class="mobile-agent-hint-copy">
         <strong id="mobile-agent-hint-mode">HUMAN MODE</strong>
+        <span id="mobile-agent-hint-operation" class="mobile-agent-hint-operation"></span>
       </div>
     </div>
 
@@ -349,13 +361,39 @@
     <section id="agent-mode-hud" class="agent-mode-hud" data-state="human" role="status" aria-live="polite" aria-atomic="true" hidden>
       <!-- Kept as a compatibility hook for the WebMCP surface check; presence is now a soft inner field, not eyes. -->
       <span class="agent-mode-sigil" aria-hidden="true" hidden></span>
+      <img id="agent-mode-cover" class="agent-mode-cover" alt="" aria-hidden="true" hidden>
+      <span class="agent-mode-lens" aria-hidden="true"></span>
       <span class="agent-mode-core" aria-hidden="true"></span>
+      <span class="agent-orb-disco-ball" aria-hidden="true">
+        <canvas id="agent-orb-disco-canvas" class="agent-orb-disco-canvas"></canvas>
+      </span>
+      <div class="agent-orb-transport" aria-label="Preview controls">
+        <button id="agent-orb-prev-btn" class="agent-orb-transport-btn agent-orb-skip-btn" aria-label="Previous track or release" title="Previous track or release" type="button" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m19 5-7 7 7 7M12 5l-7 7 7 7"></path></svg>
+        </button>
+        <button id="agent-mode-play-btn" class="agent-mode-play-btn" type="button" aria-label="Play preview" title="Play preview" hidden>
+          <svg class="agent-orb-play-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 5v14l11-7z"></path></svg>
+          <svg class="agent-orb-pause-icon hidden" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"></path></svg>
+        </button>
+        <button id="agent-orb-next-btn" class="agent-orb-transport-btn agent-orb-skip-btn" aria-label="Next track or release" title="Next track or release" type="button" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 5 7 7-7 7M12 5l7 7-7 7"></path></svg>
+        </button>
+      </div>
       <div class="agent-mode-copy">
         <strong id="agent-mode-label" class="agent-mode-label">HUMAN MODE</strong>
         <span id="agent-mode-detail" class="agent-mode-detail">READY FOR YOUR SELECTION</span>
       </div>
       <div class="agent-mode-footer">
-        <button id="agent-sound-toggle" class="agent-sound-toggle" data-agent-sound-toggle type="button" aria-label="Mute agent behavior sounds" title="Mute agent behavior sounds" aria-pressed="true" hidden>
+        <button id="agent-orb-disco-toggle" class="agent-orb-control agent-orb-disco-toggle" type="button" aria-label="Switch orb to disco ball" title="Switch orb to disco ball" aria-pressed="false">
+          <span class="agent-orb-disco-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false">
+              <circle cx="12" cy="12" r="8"></circle>
+              <path d="M6.8 8.5h10.4M5.8 12h12.4M6.8 15.5h10.4M9 4.8v14.4M12 4v16M15 4.8v14.4"></path>
+            </svg>
+          </span>
+          <span id="agent-orb-disco-toggle-label" class="sr-only">Switch orb to disco ball</span>
+        </button>
+        <button id="agent-sound-toggle" class="agent-sound-toggle agent-orb-control" data-agent-sound-toggle type="button" aria-label="Mute agent behavior sounds" title="Mute agent behavior sounds" aria-pressed="true">
           <span class="agent-sound-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" focusable="false">
               <path class="agent-sound-speaker" d="M5 10v4h3l4 3V7l-4 3H5Z"></path>
@@ -756,8 +794,8 @@
   </div>
 
   <!-- Three.js Local Script Loading -->
-  <script type="module" src="/crate/crate.js?v=20260831-webmcp-m56"></script>
-  <script type="module" src="/crate/webmcp.js?v=20260831-webmcp-m56"></script>
+  <script type="module" src="/crate/crate.js?v=20260831-webmcp-m68"></script>
+  <script type="module" src="/crate/webmcp.js?v=20260831-webmcp-m68"></script>
   <script>
     // Presentation-only local bridge hooks: keep cover testing useful when
     // the static preview cannot proxy the API media route, and let a mouse
@@ -880,8 +918,8 @@
       window.addEventListener('wheel', handleTrackpadSwipe, { passive: true });
 
       // Presentation-only marquee: expose the complete release + track title
-      // from the runtime-owned release-link label, then scroll it only when
-      // the compact player cannot fit the full line.
+      // from the runtime-owned release-link label, then scroll it automatically
+      // when the compact player cannot fit the full line.
       var playerReleaseLink = document.getElementById('player-release-link');
       var playerTrackTitle = document.getElementById('player-track-title');
       if (playerReleaseLink && playerTrackTitle) {
@@ -893,12 +931,15 @@
 
         var measurePlayerTitle = function () {
           var availableWidth = playerReleaseLink.clientWidth;
-          var contentWidth = playerTrackTitle.scrollWidth;
+          if (availableWidth <= 0) return;
+          playerReleaseLink.classList.add('is-title-measuring');
+          var contentWidth = Math.ceil(playerTrackTitle.getBoundingClientRect().width);
+          playerReleaseLink.classList.remove('is-title-measuring');
           var overflowing = contentWidth > availableWidth + 2;
           playerReleaseLink.classList.toggle('is-title-overflowing', overflowing);
           if (overflowing) {
-            var distance = Math.max(24, contentWidth - availableWidth + 16);
-            var duration = Math.min(14, Math.max(5, distance / 10));
+            var distance = Math.max(24, contentWidth - availableWidth + 12);
+            var duration = Math.min(18, Math.max(6, distance / 9));
             playerReleaseLink.style.setProperty('--player-title-marquee-distance', '-' + distance + 'px');
             playerReleaseLink.style.setProperty('--player-title-marquee-duration', duration + 's');
           } else {
@@ -915,7 +956,8 @@
             : currentText;
 
           if (!trackTitle || trackTitle === 'No track playing') {
-            playerReleaseLink.classList.remove('is-title-overflowing');
+            playerReleaseLink.classList.remove('is-title-measuring', 'is-title-overflowing');
+            playerTrackTitle.style.removeProperty('width');
             return;
           }
 
@@ -935,6 +977,11 @@
           });
           playerTitleObserver.observe(playerTrackTitle, { childList: true, subtree: true, characterData: true });
           playerTitleObserver.observe(playerReleaseLink, { attributes: true, attributeFilter: ['title', 'aria-label'] });
+          var playerVisibilityObserver = new MutationObserver(function () {
+            window.requestAnimationFrame(measurePlayerTitle);
+          });
+          var playerSurface = playerReleaseLink.closest('.custom-player');
+          if (playerSurface) playerVisibilityObserver.observe(playerSurface, { attributes: true, attributeFilter: ['class'] });
         }
         window.addEventListener('resize', measurePlayerTitle);
         syncPlayerTitle();

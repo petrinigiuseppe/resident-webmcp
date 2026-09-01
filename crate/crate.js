@@ -1,6 +1,6 @@
 /* --- 3D Vinyl Crate digging (Beta) crate.js --- */
 import * as THREE from './vendor/three.module.js';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m56';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m68';
 
 diagnostics.record('runtime', 'crate_module_loaded', { build_version: WEBMCP_BUILD_VERSION });
 
@@ -100,7 +100,9 @@ let demoCheckoutLastFocus = null;
 let demoCheckoutRequestedByAgent = false;
 let demoCheckoutAutoReturnTimer = null;
 let demoCompletionLastFocus = null;
+let demoCompletionAutoCloseTimer = null;
 const DEMO_END_MESSAGE = 'YOU REACHED THE END OF THIS WORLD — WELL PLAYED :)';
+const DEMO_COMPLETION_AUTO_CLOSE_MS = 8000;
 const demoCompletedRecordIds = new Set();
 
 function isLemonOverlayEnabled() {
@@ -291,6 +293,17 @@ let navigationAudioUnlockInstalled = false;
 let pendingPlayback = null;
 let pendingPlaybackResumeInFlight = false;
 let playbackRequestToken = 0;
+const AGENT_ORB_VISUAL_MODES = Object.freeze(['cover', 'disco_ball']);
+const AGENT_ORB_DISCO_ROTATION_SPEED = 0.24;
+let agentOrbVisualMode = 'cover';
+let agentOrbDiscoCanvas = null;
+let agentOrbDiscoRenderer = null;
+let agentOrbDiscoScene = null;
+let agentOrbDiscoCamera = null;
+let agentOrbDiscoRoot = null;
+let agentOrbDiscoAnimationFrame = 0;
+let agentOrbDiscoResizeObserver = null;
+let agentOrbDiscoLastTimestamp = 0;
 const AGENT_NAVIGATION_MIX = {
   // Kept below the behavior cues, but no longer buried under mastered previews.
   human: 0.099,
@@ -408,6 +421,7 @@ window.addEventListener('seph-agent-state', event => {
   if (nextState) agentVisualState = nextState;
   agentVisualOperation = event.detail?.operation || 'human';
   agentVisualNavigationMode = event.detail?.navigation_mode || 'preview';
+  syncAgentOrbSurface();
   const helper = document.getElementById('interaction-helper');
   const humanSurface = agentVisualState === 'human' || agentVisualState === 'override';
   if (!humanSurface) {
@@ -928,6 +942,398 @@ function findMasterCatalogItem(recordId) {
     String(item?.slug || '') === normalized ||
     String(item?.page_url || '') === normalized
   )) || null;
+}
+
+const LOCAL_COVER_API_ORIGIN = 'https://sephmartin.com';
+
+function isLocalPreviewHost() {
+  return /^(127\.0\.0\.1|localhost)$/i.test(String(window.location.hostname || ''));
+}
+
+function isCrossOriginCatalogImage(imageUrl) {
+  try {
+    return new URL(imageUrl, window.location.href).origin !== window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve catalog artwork for every surface that consumes it. The static
+ * localhost preview has no Worker API route, so its relative media/proxy
+ * URLs must use the public API origin; production keeps the same-origin
+ * paths, which avoids changing the live asset contract.
+ */
+function resolveCatalogImageUrl(rawImageUrl) {
+  const raw = String(rawImageUrl || '').trim();
+  if (!raw) return '';
+
+  let parsed;
+  try {
+    parsed = new URL(raw, window.location.href);
+  } catch {
+    return raw;
+  }
+
+  const isApiMedia = parsed.pathname.startsWith('/api/media/');
+  const isApiProxy = parsed.pathname === '/api/proxy-image';
+  const isSameSiteApi = /^https?:$/i.test(parsed.protocol)
+    && /^(?:www\.)?(?:sephmartin\.com|demo\.sephmartin\.com)$/i.test(parsed.hostname)
+    && (isApiMedia || isApiProxy);
+
+  if (isLocalPreviewHost() && (parsed.origin === window.location.origin || isSameSiteApi)) {
+    return `${LOCAL_COVER_API_ORIGIN}${parsed.pathname}${parsed.search}`;
+  }
+
+  if (isSameSiteApi) return parsed.toString();
+
+  if (/^https?:$/i.test(parsed.protocol) && parsed.origin !== window.location.origin) {
+    const proxyOrigin = isLocalPreviewHost() ? LOCAL_COVER_API_ORIGIN : '';
+    const proxyPath = `${proxyOrigin}/api/proxy-image?url=${encodeURIComponent(parsed.toString())}`;
+    return proxyPath;
+  }
+
+  return parsed.origin === window.location.origin
+    ? `${parsed.pathname}${parsed.search}${parsed.hash}`
+    : parsed.toString();
+}
+
+// The downloaded Crystal Ball-ifier archive contains a standalone React app.
+// Reuse only its useful part here: a low-count sphere made from flat mirror
+// tiles. The atmospheric particles, extra transparent shells and global light
+// effects stay out of the page so disco mode cannot affect the main UI layers.
+function createAgentDiscoBallGeometry(rings = 36) {
+  const positions = [];
+  const normals = [];
+  const colors = [];
+  const sphereRadius = 1;
+  const tileHeight = Math.PI / rings;
+
+  for (let row = 1; row < rings; row += 1) {
+    const phi = (row / rings) * Math.PI;
+    const ringRadius = Math.sin(phi) * sphereRadius;
+    const segments = Math.max(14, Math.round(((2 * Math.PI * ringRadius) / tileHeight) * 1.12));
+    const angleStep = (2 * Math.PI) / segments;
+    const tileAngularWidth = angleStep * 0.92;
+    const tileAngularHeight = tileHeight * 0.9;
+
+    for (let column = 0; column < segments; column += 1) {
+      const theta = column * angleStep;
+      const center = new THREE.Vector3(
+        Math.sin(phi) * Math.cos(theta) * sphereRadius,
+        Math.cos(phi) * sphereRadius,
+        Math.sin(phi) * Math.sin(theta) * sphereRadius
+      );
+      const normal = center.clone().normalize();
+      const corners = [
+        [phi - tileAngularHeight / 2, theta - tileAngularWidth / 2],
+        [phi - tileAngularHeight / 2, theta + tileAngularWidth / 2],
+        [phi + tileAngularHeight / 2, theta + tileAngularWidth / 2],
+        [phi + tileAngularHeight / 2, theta - tileAngularWidth / 2]
+      ].map(([cornerPhi, cornerTheta]) => {
+        const cornerRadius = Math.sin(cornerPhi) * (sphereRadius + 0.008);
+        return new THREE.Vector3(
+          cornerRadius * Math.cos(cornerTheta),
+          Math.cos(cornerPhi) * (sphereRadius + 0.008),
+          cornerRadius * Math.sin(cornerTheta)
+        );
+      });
+
+      // Add a cheap view-facing falloff and a few fixed reflection biases so
+      // the flat tiles still read as a sphere without an HDR environment or a
+      // second full-page effect. The real lights below still provide the
+      // moving specular response as the group rotates.
+      const viewFacing = Math.max(0, normal.z);
+      const keyFacing = Math.max(0, (normal.x * -0.34) + (normal.y * 0.52) + (normal.z * 0.78));
+      const coolFacing = Math.max(0, (normal.x * 0.78) + (normal.y * -0.24) + (normal.z * 0.56));
+      const tileVariance = 0.94 + (((row * 37 + column * 17) % 17) / 212);
+      const tileBrightness = (0.38 + (0.28 * Math.sqrt(viewFacing)) + (0.2 * keyFacing) + (0.1 * coolFacing)) * tileVariance;
+      // Keep the mirror field neutral. The physical-looking colour shifts
+      // come from the studio lights, not from a tinted tile grid.
+      const tileColor = [tileBrightness, tileBrightness, tileBrightness];
+      [0, 1, 2, 0, 2, 3].forEach(index => {
+        const point = corners[index];
+        positions.push(point.x, point.y, point.z);
+        normals.push(normal.x, normal.y, normal.z);
+        colors.push(tileColor[0], tileColor[1], tileColor[2]);
+      });
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function resizeAgentOrbDiscoScene() {
+  if (!agentOrbDiscoRenderer || !agentOrbDiscoCamera || !agentOrbDiscoCanvas) return;
+  const host = agentOrbDiscoCanvas.parentElement;
+  if (!host) return;
+
+  const width = Math.max(1, host.clientWidth);
+  const height = Math.max(1, host.clientHeight);
+  agentOrbDiscoRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+  agentOrbDiscoRenderer.setSize(width, height, false);
+  agentOrbDiscoCamera.aspect = width / height;
+  agentOrbDiscoCamera.updateProjectionMatrix();
+}
+
+function ensureAgentOrbDiscoScene() {
+  const canvas = document.getElementById('agent-orb-disco-canvas');
+  if (!canvas) return false;
+  if (agentOrbDiscoRenderer && agentOrbDiscoCanvas === canvas) return true;
+
+  agentOrbDiscoCanvas = canvas;
+  agentOrbDiscoScene = new THREE.Scene();
+  agentOrbDiscoCamera = new THREE.PerspectiveCamera(28, 1, 0.1, 10);
+  agentOrbDiscoCamera.position.set(0, 0, 3.25);
+
+  const ball = new THREE.Group();
+  ball.scale.setScalar(1.08);
+
+  const core = new THREE.Mesh(
+    new THREE.SphereGeometry(0.987, 32, 20),
+    new THREE.MeshStandardMaterial({
+      color: 0x050509,
+      metalness: 0.08,
+      roughness: 0.88
+    })
+  );
+  const tiles = new THREE.Mesh(
+    createAgentDiscoBallGeometry(),
+    new THREE.MeshStandardMaterial({
+      color: 0xf8fafc,
+      metalness: 0.9,
+      roughness: 0.12,
+      emissive: 0x11141b,
+      emissiveIntensity: 0.06,
+      vertexColors: true,
+      flatShading: true
+    })
+  );
+  tiles.renderOrder = 1;
+  ball.add(core, tiles);
+  agentOrbDiscoRoot = ball;
+  agentOrbDiscoScene.add(ball);
+
+  const ambient = new THREE.HemisphereLight(0xd8e2f0, 0x090a10, 0.72);
+  const key = new THREE.DirectionalLight(0xffffff, 3.5);
+  key.position.set(-2.8, 3.2, 4.8);
+  const frontFill = new THREE.DirectionalLight(0xf7fbff, 1.65);
+  frontFill.position.set(1.2, -0.6, 4.7);
+  const coolFill = new THREE.PointLight(0xb5ddff, 0.85, 6, 2);
+  coolFill.position.set(2.5, -1.2, 2.2);
+  const warmFill = new THREE.PointLight(0xffe1ae, 0.5, 6, 2);
+  warmFill.position.set(-2.4, 1.1, 2.8);
+  const pinkRim = new THREE.PointLight(0xffb8df, 0.3, 6, 2);
+  pinkRim.position.set(-2.1, -1.7, 1.5);
+  agentOrbDiscoScene.add(ambient, key, frontFill, coolFill, warmFill, pinkRim);
+
+  try {
+    agentOrbDiscoRenderer = new THREE.WebGLRenderer({
+      canvas,
+      alpha: true,
+      antialias: true,
+      powerPreference: 'low-power'
+    });
+    agentOrbDiscoRenderer.setClearColor(0x000000, 0);
+    agentOrbDiscoRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+    agentOrbDiscoRenderer.toneMappingExposure = 1.05;
+    if (THREE.SRGBColorSpace) agentOrbDiscoRenderer.outputColorSpace = THREE.SRGBColorSpace;
+  } catch (error) {
+    console.warn('Agent orb disco renderer unavailable:', error);
+    agentOrbDiscoRenderer = null;
+    return false;
+  }
+
+  if (typeof ResizeObserver === 'function' && canvas.parentElement) {
+    agentOrbDiscoResizeObserver = new ResizeObserver(() => {
+      if (agentOrbVisualMode === 'disco_ball') resizeAgentOrbDiscoScene();
+    });
+    agentOrbDiscoResizeObserver.observe(canvas.parentElement);
+  }
+  resizeAgentOrbDiscoScene();
+  return true;
+}
+
+function renderAgentOrbDiscoFrame(timestamp) {
+  agentOrbDiscoAnimationFrame = 0;
+  const hud = document.getElementById('agent-mode-hud');
+  if (!hud || hud.hidden || agentOrbVisualMode !== 'disco_ball' || !agentOrbDiscoRenderer || !agentOrbDiscoRoot) {
+    agentOrbDiscoLastTimestamp = 0;
+    return;
+  }
+
+  const delta = agentOrbDiscoLastTimestamp
+    ? Math.min(0.05, Math.max(0.001, (timestamp - agentOrbDiscoLastTimestamp) / 1000))
+    : 1 / 60;
+  agentOrbDiscoLastTimestamp = timestamp;
+  const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  const isPlaying = Boolean(currentPlayingTrackId
+    && (audio.currentSrc || audio.src)
+    && !audio.paused
+    && !audio.ended);
+  if (isPlaying && !reducedMotion) {
+    agentOrbDiscoRoot.rotation.y += delta * AGENT_ORB_DISCO_ROTATION_SPEED;
+    agentOrbDiscoRoot.rotation.x = 0.08;
+    agentOrbDiscoRoot.rotation.z = -0.035;
+  }
+  agentOrbDiscoRenderer.render(agentOrbDiscoScene, agentOrbDiscoCamera);
+
+  if (isPlaying && !reducedMotion) {
+    agentOrbDiscoAnimationFrame = window.requestAnimationFrame(renderAgentOrbDiscoFrame);
+  }
+}
+
+function syncAgentOrbDiscoSurface() {
+  const hud = document.getElementById('agent-mode-hud');
+  const shouldRender = Boolean(hud && !hud.hidden && agentOrbVisualMode === 'disco_ball');
+  const shouldAnimate = Boolean(shouldRender
+    && currentPlayingTrackId
+    && (audio.currentSrc || audio.src)
+    && !audio.paused
+    && !audio.ended
+    && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+
+  if (!shouldRender) {
+    if (agentOrbDiscoAnimationFrame) {
+      window.cancelAnimationFrame(agentOrbDiscoAnimationFrame);
+      agentOrbDiscoAnimationFrame = 0;
+    }
+    agentOrbDiscoLastTimestamp = 0;
+    return;
+  }
+
+  if (!ensureAgentOrbDiscoScene()) return;
+  resizeAgentOrbDiscoScene();
+
+  // Keep the ball visible as a still object when no preview is loaded or the
+  // user pauses. Only an actively playing preview owns the rAF loop.
+  if (!shouldAnimate) {
+    if (agentOrbDiscoAnimationFrame) {
+      window.cancelAnimationFrame(agentOrbDiscoAnimationFrame);
+      agentOrbDiscoAnimationFrame = 0;
+    }
+    agentOrbDiscoLastTimestamp = 0;
+    renderAgentOrbDiscoFrame(performance.now());
+    return;
+  }
+
+  if (!agentOrbDiscoAnimationFrame) {
+    agentOrbDiscoLastTimestamp = 0;
+    agentOrbDiscoAnimationFrame = window.requestAnimationFrame(renderAgentOrbDiscoFrame);
+  }
+}
+
+function getAgentOrbVisualState() {
+  const hud = document.getElementById('agent-mode-hud');
+  const release = currentPlayingReleaseId ? findMasterCatalogItem(currentPlayingReleaseId) : null;
+  const trackLoaded = Boolean(currentPlayingTrackId && (audio.currentSrc || audio.src));
+
+  return {
+    mode: agentOrbVisualMode,
+    available_modes: [...AGENT_ORB_VISUAL_MODES],
+    cover_record_id: release ? getCrateRecordId(release) : null,
+    cover_url: resolveCatalogImageUrl(release?.image) || null,
+    track_id: currentPlayingTrackId,
+    track_loaded: trackLoaded,
+    is_playing: Boolean(trackLoaded && !audio.paused),
+    interactive: Boolean(hud && !hud.hidden),
+    disco_rotation_y: Number(agentOrbDiscoRoot?.rotation?.y || 0),
+    disco_animation_active: Boolean(agentOrbDiscoAnimationFrame)
+  };
+}
+
+function syncAgentOrbSurface() {
+  const root = document.documentElement;
+  const hud = document.getElementById('agent-mode-hud');
+  const cover = document.getElementById('agent-mode-cover');
+  const playButton = document.getElementById('agent-mode-play-btn');
+  const discoToggle = document.getElementById('agent-orb-disco-toggle');
+  const playIcon = document.querySelector('.agent-orb-play-icon');
+  const pauseIcon = document.querySelector('.agent-orb-pause-icon');
+  const release = currentPlayingReleaseId ? findMasterCatalogItem(currentPlayingReleaseId) : null;
+  const coverUrl = resolveCatalogImageUrl(release?.image);
+  const trackLoaded = Boolean(currentPlayingTrackId && (audio.currentSrc || audio.src));
+  const isPlaying = Boolean(trackLoaded && !audio.paused);
+
+  root.dataset.agentOrbVisual = agentOrbVisualMode;
+  if (hud) {
+    hud.dataset.orbVisual = agentOrbVisualMode;
+    hud.dataset.trackLoaded = trackLoaded ? 'true' : 'false';
+    hud.dataset.trackPlaying = isPlaying ? 'true' : 'false';
+  }
+
+  if (cover) {
+    if (coverUrl) {
+      if (cover.getAttribute('src') !== coverUrl) cover.setAttribute('src', coverUrl);
+      cover.alt = `${release?.title || 'Current release'} cover`;
+      cover.hidden = false;
+    } else {
+      cover.hidden = true;
+      cover.removeAttribute('src');
+      cover.alt = '';
+    }
+  }
+
+  if (playButton) {
+    playButton.hidden = !trackLoaded;
+    playButton.classList.toggle('is-playing', isPlaying);
+    playButton.setAttribute(
+      'aria-label',
+      isPlaying
+        ? 'Pause preview'
+        : pendingPlayback ? 'Play preview (tap or click to start)' : 'Play preview'
+    );
+    playButton.title = isPlaying ? 'Pause preview' : 'Play preview';
+  }
+  if (playIcon) playIcon.classList.toggle('hidden', isPlaying);
+  if (pauseIcon) pauseIcon.classList.toggle('hidden', !isPlaying);
+
+  if (discoToggle) {
+    const nextLabel = agentOrbVisualMode === 'disco_ball'
+      ? 'Switch orb to cover'
+      : 'Switch orb to disco ball';
+    discoToggle.setAttribute('aria-pressed', String(agentOrbVisualMode === 'disco_ball'));
+    discoToggle.setAttribute('aria-label', nextLabel);
+    discoToggle.title = nextLabel;
+    const label = document.getElementById('agent-orb-disco-toggle-label');
+    if (label) label.textContent = nextLabel;
+  }
+
+  syncPlayerTransportControls();
+  syncAgentOrbDiscoSurface();
+}
+
+function setAgentOrbVisual(mode, { source = 'agent' } = {}) {
+  const normalized = String(mode || '').trim().toLowerCase();
+  if (!AGENT_ORB_VISUAL_MODES.includes(normalized)) {
+    return {
+      ok: false,
+      error: {
+        code: 'INVALID_ORB_VISUAL',
+        message: 'mode must be cover or disco_ball.'
+      },
+      orb: getAgentOrbVisualState()
+    };
+  }
+
+  const previousMode = agentOrbVisualMode;
+  agentOrbVisualMode = normalized;
+  syncAgentOrbSurface();
+  const orb = getAgentOrbVisualState();
+  diagnostics.record('agent_orb', 'visual_mode_changed', {
+    previous_mode: previousMode,
+    mode: normalized,
+    source
+  }, { snapshot: true });
+  window.dispatchEvent(new CustomEvent('seph-agent-orb-state', {
+    detail: { event: 'visual_mode_changed', source, ...orb }
+  }));
+  return { ok: true, previous_mode: previousMode, orb };
 }
 
 function syncBuyButtonLabel(buyBtn, item, inCrate) {
@@ -1756,6 +2162,113 @@ function completeDemoCheckout() {
   return true;
 }
 
+// WebMCP's final purchase action is deliberately limited to the on-site
+// simulator. It completes the visible review surface without touching Lemon,
+// payment providers, or any real checkout session.
+function completeDemoCheckoutFromAgent() {
+  if (!isDemoCheckoutSimulatorEnabled()) {
+    return {
+      ok: false,
+      status: 'purchase_confirmation_required',
+      purchase_started: false,
+      purchase_complete: false,
+      human_confirmation_required: true,
+      checkout_surface: isLemonOverlayEnabled() ? 'lemon_overlay' : 'lemon_redirect',
+      error: {
+        code: 'REAL_PURCHASE_HUMAN_REQUIRED',
+        message: 'The final purchase must be completed by the user in the live checkout.'
+      },
+      next_step: 'Complete the purchase in the visible Lemon checkout surface.'
+    };
+  }
+
+  const modal = document.getElementById('demo-checkout-modal');
+  if (!modal || modal.classList.contains('hidden')) {
+    return {
+      ok: false,
+      status: 'demo_checkout_not_open',
+      purchase_started: false,
+      purchase_complete: false,
+      human_confirmation_required: false,
+      checkout_surface: 'demo_simulator',
+      error: {
+        code: 'DEMO_CHECKOUT_NOT_OPEN',
+        message: 'Open the visible demo checkout before completing the purchase.'
+      },
+      next_step: 'Call start_checkout first, then call complete_purchase.'
+    };
+  }
+
+  if (modal.dataset.step === 'success') {
+    return {
+      ok: true,
+      status: 'demo_purchase_completed',
+      purchase_started: false,
+      purchase_complete: true,
+      already_completed: true,
+      human_confirmation_required: false,
+      checkout_surface: 'demo_simulator',
+      order_id: document.getElementById('demo-checkout-order-id')?.textContent?.trim() || null,
+      next_step: 'Call download_release to continue; it returns to My Crate automatically and opens the copyright-safe demo boundary.'
+    };
+  }
+
+  if (modal.dataset.step !== 'checkout' || demoCheckoutSelection.length === 0) {
+    return {
+      ok: false,
+      status: 'demo_checkout_unavailable',
+      purchase_started: false,
+      purchase_complete: false,
+      human_confirmation_required: false,
+      checkout_surface: 'demo_simulator',
+      error: {
+        code: 'DEMO_CHECKOUT_REVIEW_UNAVAILABLE',
+        message: 'The demo checkout is not ready for completion.'
+      },
+      next_step: 'Review the visible checkout and try complete_purchase again.'
+    };
+  }
+
+  const recordIds = [...new Set(demoCheckoutSelection.map(getCrateRecordId).filter(Boolean))];
+  const totalCents = demoCheckoutSelection.reduce(
+    (sum, item) => sum + parsePriceCents(item.price_text),
+    0
+  );
+  const completed = completeDemoCheckout();
+  if (!completed) {
+    return {
+      ok: false,
+      status: 'demo_purchase_failed',
+      purchase_started: false,
+      purchase_complete: false,
+      human_confirmation_required: false,
+      checkout_surface: 'demo_simulator',
+      record_ids: recordIds,
+      total_cents: totalCents,
+      error: {
+        code: 'DEMO_PURCHASE_FAILED',
+        message: document.getElementById('demo-checkout-error')?.textContent?.trim()
+          || 'The demo purchase could not be completed.'
+      }
+    };
+  }
+
+  return {
+    ok: true,
+    status: 'demo_purchase_completed',
+    purchase_started: true,
+    purchase_complete: true,
+    already_completed: false,
+    human_confirmation_required: false,
+    checkout_surface: 'demo_simulator',
+    order_id: document.getElementById('demo-checkout-order-id')?.textContent?.trim() || null,
+    record_ids: recordIds,
+    cart_count: recordIds.length,
+    total_cents: totalCents,
+    next_step: 'Call download_release to continue; it returns to My Crate automatically and opens the copyright-safe demo boundary.'
+  };
+}
+
 function openDemoMyCrateAfterPurchase(recordId = '') {
   const firstRecordId = recordId || (demoCheckoutSelection[0]
     ? getCrateRecordId(demoCheckoutSelection[0])
@@ -1824,6 +2337,10 @@ function triggerDemoConfetti(layerId) {
 function openDemoCompletionModal({ source = 'human', recordId = '', orderId = '', message = DEMO_END_MESSAGE } = {}) {
   const modal = document.getElementById('demo-completion-modal');
   if (!modal) return false;
+  if (demoCompletionAutoCloseTimer) {
+    window.clearTimeout(demoCompletionAutoCloseTimer);
+    demoCompletionAutoCloseTimer = null;
+  }
   if (modal.classList.contains('hidden')) {
     demoCompletionLastFocus = document.activeElement instanceof HTMLElement
       ? document.activeElement
@@ -1851,12 +2368,20 @@ function openDemoCompletionModal({ source = 'human', recordId = '', orderId = ''
   window.requestAnimationFrame(() => {
     document.getElementById('demo-completion-close')?.focus();
   });
+  demoCompletionAutoCloseTimer = window.setTimeout(() => {
+    demoCompletionAutoCloseTimer = null;
+    closeDemoCompletionModal({ reason: 'auto_close' });
+  }, DEMO_COMPLETION_AUTO_CLOSE_MS);
   return true;
 }
 
 function closeDemoCompletionModal({ reason = 'dismissed' } = {}) {
   const modal = document.getElementById('demo-completion-modal');
   if (!modal || modal.classList.contains('hidden')) return false;
+  if (demoCompletionAutoCloseTimer) {
+    window.clearTimeout(demoCompletionAutoCloseTimer);
+    demoCompletionAutoCloseTimer = null;
+  }
   const detail = {
     reason,
     source: modal.dataset.source || 'human',
@@ -1924,6 +2449,67 @@ function completeDemoReleasePreview(item, { source = 'human' } = {}) {
     order_id: purchase.order_id,
     message: DEMO_END_MESSAGE,
     completion_modal_open: completionModalOpen,
+    next_step: 'The demo has reached its end. No audio file is available from this preview.'
+  };
+}
+
+function downloadDemoRelease(recordId = '') {
+  if (!isDemoCheckoutSimulatorEnabled()) {
+    return {
+      ok: false,
+      status: 'download_unavailable',
+      demo_complete: false,
+      download_requested: false,
+      download_started: false,
+      download_available: false,
+      audio_download_available: false,
+      demo_only: true,
+      error: {
+        code: 'DEMO_BOUNDARY_ONLY',
+        message: 'The WebMCP download boundary is available only in the on-site demo.'
+      }
+    };
+  }
+
+  const normalizedRecordId = String(recordId || '').trim();
+  let returnedToMyCrate = false;
+  const checkoutModal = document.getElementById('demo-checkout-modal');
+  // The agent can continue directly from the visible Purchase Complete state.
+  // Mirror the human RETURN TO MY CRATE step before opening the final demo
+  // boundary, so the canonical WebMCP sequence can be start -> complete ->
+  // download without leaving two modal surfaces stacked on one another.
+  if (checkoutModal && !checkoutModal.classList.contains('hidden') && checkoutModal.dataset.step === 'success') {
+    const purchasedRecordId = normalizedRecordId
+      || (demoCheckoutSelection[0] ? getCrateRecordId(demoCheckoutSelection[0]) : '');
+    returnedToMyCrate = Boolean(openDemoMyCrateAfterPurchase(purchasedRecordId)?.ok);
+  }
+  const item = normalizedRecordId
+    ? findMasterCatalogItem(normalizedRecordId)
+    : getActiveUserCrateItem();
+  if (!item) {
+    return {
+      ok: false,
+      status: 'demo_download_unavailable',
+      demo_complete: false,
+      download_requested: false,
+      download_started: false,
+      download_available: false,
+      audio_download_available: false,
+      demo_only: true,
+      error: {
+        code: 'DEMO_DOWNLOAD_UNAVAILABLE',
+        message: 'Select a purchased release before reaching the demo boundary.'
+      },
+      next_step: 'Select a purchased release in My Crate, then call download_release again.'
+    };
+  }
+
+  return {
+    ...completeDemoReleasePreview(item, { source: 'agent' }),
+    download_requested: true,
+    audio_download_available: false,
+    demo_only: true,
+    returned_to_my_crate: returnedToMyCrate,
     next_step: 'The demo has reached its end. No audio file is available from this preview.'
   };
 }
@@ -2079,13 +2665,7 @@ function startCheckoutFromAgent() {
   const overlayActive = isLemonOverlayEnabled();
   const demoSimulatorActive = isDemoCheckoutSimulatorEnabled();
   const activeDemoItem = getActiveUserCrateItem()
-    || activeDemoItemBeforeView
-    || (demoSimulatorActive
-      ? getOrderedUserCrateSlugs({ excludeAnimating: false })
-        .map(recordId => findMasterCatalogItem(recordId))
-        .find(item => item && getDemoPurchaseForRecord(item))
-      : null);
-  const activeDemoPurchase = activeDemoItem ? getDemoPurchaseForRecord(activeDemoItem) : null;
+    || activeDemoItemBeforeView;
 
   if (demoSimulatorActive && activeDemoItem && !userIsSelected) {
     const orderedItems = getOrderedUserCrateSlugs({ excludeAnimating: false });
@@ -2103,19 +2683,38 @@ function startCheckoutFromAgent() {
     total_cents: checkoutSummary.total_cents
   }, { snapshot: true });
 
-  // The handler keeps the demo boundary on the same visible player surface;
-  // it never exposes an audio file.
-  if (demoSimulatorActive && activeDemoPurchase) {
+  // Agent checkout stops at the same visible review surface as a human click.
+  // Even in the no-payment simulator, the final action remains behind an
+  // explicit confirmation. The agent can open review, but must not purchase
+  // merely because the user asked to inspect or start checkout.
+  if (demoSimulatorActive) {
+    const validItems = readLocalCrateItems().map(findMasterCatalogItem).filter(Boolean);
+    demoCheckoutRequestedByAgent = true;
+    const opened = openDemoCheckoutModal(validItems);
+    if (!opened) {
+      return {
+        ok: false,
+        ...checkoutSummary,
+        view: 'my_crate',
+        error: {
+          code: 'DEMO_CHECKOUT_UNAVAILABLE',
+          message: 'The demo checkout surface is unavailable.'
+        }
+      };
+    }
     return {
+      ok: true,
       ...checkoutSummary,
-      ...completeDemoReleasePreview(activeDemoItem, { source: 'agent' }),
       view: 'my_crate',
-      checkout_started: false,
+      status: 'demo_checkout_opened',
+      checkout_started: true,
       purchase_started: false,
-      checkout_surface: 'demo_simulator'
+      human_confirmation_required: true,
+      checkout_surface: 'demo_simulator',
+      next_step: 'Review the visible demo checkout and wait for explicit confirmation; then call complete_purchase with confirmed=true.'
     };
   }
-  demoCheckoutRequestedByAgent = demoSimulatorActive;
+  demoCheckoutRequestedByAgent = false;
   trigger.click();
 
   return {
@@ -2125,12 +2724,12 @@ function startCheckoutFromAgent() {
     status: demoSimulatorActive ? 'demo_checkout_opened' : 'starting',
     checkout_started: true,
     purchase_started: false,
-    human_confirmation_required: demoSimulatorActive,
+    human_confirmation_required: true,
     checkout_surface: demoSimulatorActive
       ? 'demo_simulator'
       : overlayActive ? 'lemon_overlay' : 'lemon_redirect',
     next_step: demoSimulatorActive
-      ? 'Confirm the purchase in the on-site checkout.'
+      ? 'Review the visible demo checkout and wait for explicit confirmation; then call complete_purchase with confirmed=true.'
       : overlayActive
       ? 'Complete the purchase in the Lemon checkout overlay.'
       : 'Complete the purchase on the Lemon checkout page.'
@@ -2165,9 +2764,16 @@ function publishCrateApi() {
     getTheme: getThemeState,
     setTheme,
     getUiContext,
+    getAgentOrbVisual: getAgentOrbVisualState,
+    setAgentOrbVisual,
     getPlayerState,
+    setPlayerVolume,
     playTrack: playTrackById,
     pauseTrack: pauseAudio,
+    previousTrack: () => playPreviousTrack('agent'),
+    nextTrack: () => playNextTrack('agent'),
+    previousRelease: () => focusAdjacentRelease(-1, { source: 'agent' }),
+    nextRelease: () => focusAdjacentRelease(1, { source: 'agent' }),
     seekTrack: seekPlayer,
     browseCatalog,
     browseToRecord,
@@ -2205,6 +2811,8 @@ function publishCrateApi() {
     showMyCrate: showMyCrateView,
     showMainCrate: showMainCrateView,
     startCheckout: startCheckoutFromAgent,
+    completePurchase: completeDemoCheckoutFromAgent,
+    downloadDemoRelease,
     prepareCheckout: () => {
       const view = showMyCrateView();
       if (!view.ok) return view;
@@ -2240,11 +2848,8 @@ function applyCatalogUpdates({ preservePlayer = true } = {}) {
         rec.targetRotX = -0.20;
 
         // Update texture map
-        let imageUrl = item.image;
-        const isExternal = imageUrl && imageUrl.startsWith('http') && !imageUrl.includes(window.location.hostname);
-        if (isExternal) {
-          imageUrl = '/api/proxy-image?url=' + encodeURIComponent(imageUrl);
-        }
+        const imageUrl = resolveCatalogImageUrl(item.image);
+        const isExternal = isCrossOriginCatalogImage(imageUrl);
 
         const cachedTexture = textureCache.get(imageUrl);
         if (cachedTexture) {
@@ -2705,8 +3310,10 @@ function initUI() {
         release_record_id: currentPlayingReleaseId
       }, { snapshot: true });
       if (pendingPlayback) {
+        notifyHumanPlayerInput('keyboard_space');
         resumePendingPlayback(e);
       } else {
+        notifyHumanPlayerInput('keyboard_space');
         toggleAudioPlayback('keyboard_space');
       }
       return;
@@ -2797,7 +3404,56 @@ function initUI() {
 
   // Custom Audio Player Listeners
   const playPauseBtn = document.getElementById('player-play-btn');
-  if (playPauseBtn) playPauseBtn.addEventListener('click', () => toggleAudioPlayback('player_button'));
+  if (playPauseBtn) {
+    playPauseBtn.addEventListener('click', () => {
+      notifyHumanPlayerInput('player_button');
+      void toggleAudioPlayback('player_button');
+    });
+  }
+
+  const previousTransportButton = document.getElementById('agent-orb-prev-btn');
+  if (previousTransportButton) {
+    previousTransportButton.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      notifyHumanPlayerInput('orb_previous');
+      void playAdjacentPreview(-1, 'orb_previous');
+    });
+  }
+
+  const nextTransportButton = document.getElementById('agent-orb-next-btn');
+  if (nextTransportButton) {
+    nextTransportButton.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      notifyHumanPlayerInput('orb_next');
+      void playAdjacentPreview(1, 'orb_next');
+    });
+  }
+
+  const orbPlayButton = document.getElementById('agent-mode-play-btn');
+  if (orbPlayButton) {
+    orbPlayButton.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      notifyHumanPlayerInput('orb_play_pause');
+      void toggleAudioPlayback('agent_orb');
+    });
+  }
+
+  const orbDiscoToggle = document.getElementById('agent-orb-disco-toggle');
+  if (orbDiscoToggle) {
+    orbDiscoToggle.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      setAgentOrbVisual(
+        agentOrbVisualMode === 'disco_ball' ? 'cover' : 'disco_ball',
+        { source: 'human_orb_control' }
+      );
+    });
+  }
+
+  syncAgentOrbSurface();
   installPendingPlaybackGesture();
 
   const handlePlayerReleaseFocus = (e) => {
@@ -3186,17 +3842,29 @@ function initUI() {
       return;
     }
 
-    if (isDemoCheckoutSimulatorEnabled()) {
+    const isDemoBoundaryAction = isDemoCheckoutSimulatorEnabled()
+      && triggerButton?.dataset.demoDownload === 'true';
+    if (isDemoBoundaryAction) {
       const activeDemoItem = getActiveUserCrateItem();
       const activeDemoPurchase = activeDemoItem ? getDemoPurchaseForRecord(activeDemoItem) : null;
-      if (activeDemoPurchase) {
+      if (!activeDemoItem || !activeDemoPurchase) {
         return {
-          ...completeDemoReleasePreview(activeDemoItem, { source: 'human' }),
-          checkout_started: false,
-          purchase_started: false,
-          checkout_surface: 'demo_simulator'
+          ok: false,
+          error: {
+            code: 'DEMO_DOWNLOAD_UNAVAILABLE',
+            message: 'Select a purchased release before reaching the demo boundary.'
+          }
         };
       }
+      return {
+        ...completeDemoReleasePreview(activeDemoItem, { source: 'human' }),
+        checkout_started: false,
+        purchase_started: false,
+        checkout_surface: 'demo_simulator'
+      };
+    }
+
+    if (isDemoCheckoutSimulatorEnabled()) {
       const opened = openDemoCheckoutModal(validItems);
       if (!opened) {
         return {
@@ -3772,6 +4440,7 @@ function onWindowResize() {
   syncAgentCrateFrame();
   syncAgentCrateAura();
   syncThemeWithBrowser();
+  resizeAgentOrbDiscoScene();
 }
 
 function createStickyNoteTexture() {
@@ -4142,11 +4811,8 @@ function buildRecords() {
 
       // Only load priority covers immediately
       if (i < priorityLimit) {
-        let imageUrl = item.image;
-        const isExternal = imageUrl && imageUrl.startsWith('http') && !imageUrl.includes(window.location.hostname);
-        if (isExternal) {
-          imageUrl = '/api/proxy-image?url=' + encodeURIComponent(imageUrl);
-        }
+        const imageUrl = resolveCatalogImageUrl(item.image);
+        const isExternal = isCrossOriginCatalogImage(imageUrl);
 
         textureLoader.crossOrigin = isExternal ? 'anonymous' : '';
         textureLoader.load(imageUrl, (texture) => {
@@ -4180,11 +4846,8 @@ function startStaggeredLoading() {
     const delay = (i - 4) * 45; // 45ms cascade step for organic tempo
 
     setTimeout(() => {
-      let imageUrl = item.image;
-      const isExternal = imageUrl && imageUrl.startsWith('http') && !imageUrl.includes(window.location.hostname);
-      if (isExternal) {
-        imageUrl = '/api/proxy-image?url=' + encodeURIComponent(imageUrl);
-      }
+      const imageUrl = resolveCatalogImageUrl(item.image);
+      const isExternal = isCrossOriginCatalogImage(imageUrl);
 
       textureLoader.crossOrigin = isExternal ? 'anonymous' : '';
       textureLoader.load(imageUrl, (texture) => {
@@ -4488,7 +5151,7 @@ function showRecordDetails(index) {
   restorePlayerToPanel();
 
   // Set elements
-  document.getElementById('detail-cover').src = item.image;
+  document.getElementById('detail-cover').src = resolveCatalogImageUrl(item.image);
   document.getElementById('detail-title').innerText = item.title;
   document.getElementById('detail-artist').innerText = item.artist;
   document.getElementById('detail-price').innerText = item.price_text || 'Buy';
@@ -4745,6 +5408,155 @@ function findReleaseByTrackId(trackId) {
   return list.find(release => release.tracks && release.tracks.some(t => t.id === trackId)) || null;
 }
 
+function getCurrentPlayingRelease() {
+  return (currentPlayingReleaseId && findMasterCatalogItem(currentPlayingReleaseId))
+    || findReleaseByTrackId(currentPlayingTrackId)
+    || null;
+}
+
+function getAdjacentTrack(direction = 1) {
+  const parentRelease = getCurrentPlayingRelease();
+  const tracks = Array.isArray(parentRelease?.tracks) ? parentRelease.tracks : [];
+  const currentIndex = tracks.findIndex(track => String(track?.id || '') === String(currentPlayingTrackId || ''));
+  const targetIndex = currentIndex + (Number(direction) < 0 ? -1 : 1);
+  if (!parentRelease || currentIndex < 0 || targetIndex < 0 || targetIndex >= tracks.length) return null;
+
+  const track = tracks[targetIndex];
+  const recordId = getCrateRecordId(parentRelease);
+  return {
+    release: parentRelease,
+    recordId,
+    track,
+    trackIndex: targetIndex,
+    trackItemElement: findTrackElement(recordId, track?.id)
+  };
+}
+
+function getNavigationAnchorRecordId({ selectionFirst = false } = {}) {
+  const visibleRecords = isUserCrateViewActive
+    ? userRecordsData.map(entry => findMasterCatalogItem(entry?.recordId || entry?.slug)).filter(Boolean)
+    : catalog;
+  const activeRecordIndex = isUserCrateViewActive ? userActiveIndex : activeIndex;
+  const selectedRecordId = getCrateRecordId(visibleRecords[activeRecordIndex]);
+  if (selectionFirst && selectedRecordId) return selectedRecordId;
+  if (currentPlayingReleaseId) return String(currentPlayingReleaseId).trim();
+  return selectedRecordId;
+}
+
+function getAdjacentRelease(direction = 1, { anchorRecordId = '' } = {}) {
+  const delta = Number(direction) < 0 ? -1 : 1;
+  const visibleReleases = Array.isArray(catalog) ? catalog : [];
+  if (visibleReleases.length === 0) return null;
+
+  const anchorId = String(anchorRecordId || getNavigationAnchorRecordId()).trim();
+  const buildTarget = (release, index) => {
+    if (!release) return null;
+    return {
+      release,
+      recordId: getCrateRecordId(release),
+      releaseIndex: index
+    };
+  };
+
+  const visibleAnchorIndex = anchorId
+    ? visibleReleases.findIndex(release => getCrateRecordId(release) === anchorId)
+    : -1;
+  if (visibleAnchorIndex >= 0) {
+    return buildTarget(visibleReleases[visibleAnchorIndex + delta], visibleAnchorIndex + delta);
+  }
+
+  // A release can disappear from Shop after it is added to My Crate. Keep
+  // release navigation useful by resolving the nearest visible neighbour in
+  // the complete digital catalog instead of guessing from activeIndex.
+  if (anchorId) {
+    const allReleases = getDigitalCatalog();
+    const allAnchorIndex = allReleases.findIndex(release => getCrateRecordId(release) === anchorId);
+    if (allAnchorIndex >= 0) {
+      for (let index = allAnchorIndex + delta; index >= 0 && index < allReleases.length; index += delta) {
+        const candidateId = getCrateRecordId(allReleases[index]);
+        const visibleIndex = visibleReleases.findIndex(release => getCrateRecordId(release) === candidateId);
+        if (visibleIndex >= 0) return buildTarget(visibleReleases[visibleIndex], visibleIndex);
+      }
+    }
+  }
+
+  const fallbackIndex = Math.max(0, Math.min(visibleReleases.length - 1, activeIndex));
+  const targetIndex = fallbackIndex + delta;
+  return buildTarget(visibleReleases[targetIndex], targetIndex);
+}
+
+function focusAdjacentRelease(direction = 1, { source = 'agent', anchorRecordId = '' } = {}) {
+  const delta = Number(direction) < 0 ? -1 : 1;
+  const anchor = String(anchorRecordId || getNavigationAnchorRecordId({ selectionFirst: true })).trim();
+  if (isUserCrateViewActive || currentSearchQuery) {
+    showMainCrateView({ preservePhysicalOrder: true });
+  }
+
+  const target = getAdjacentRelease(delta, { anchorRecordId: anchor });
+  if (!target) {
+    const label = delta < 0 ? 'previous' : 'next';
+    return {
+      ok: false,
+      error: {
+        code: delta < 0 ? 'NO_PREVIOUS_RELEASE' : 'NO_NEXT_RELEASE',
+        message: `There is no ${label} release in the visible Shop crate.`
+      }
+    };
+  }
+
+  const focused = focusRecordById(target.recordId);
+  if (!focused.ok) return focused;
+  diagnostics.record('ui', 'release_navigation', {
+    source,
+    direction: delta < 0 ? 'previous' : 'next',
+    from_record_id: anchor || null,
+    to_record_id: target.recordId
+  }, { snapshot: true });
+  return {
+    ok: true,
+    ...focused,
+    navigation: {
+      mode: 'release',
+      direction: delta < 0 ? 'previous' : 'next',
+      from_record_id: anchor || null,
+      to_record_id: target.recordId
+    }
+  };
+}
+
+function syncPlayerTransportControls() {
+  const previousButton = document.getElementById('agent-orb-prev-btn');
+  const nextButton = document.getElementById('agent-orb-next-btn');
+  const adjacent = {
+    previousTrack: getAdjacentTrack(-1),
+    nextTrack: getAdjacentTrack(1),
+    previousRelease: getAdjacentRelease(-1),
+    nextRelease: getAdjacentRelease(1)
+  };
+
+  [
+    [previousButton, adjacent.previousTrack || adjacent.previousRelease, adjacent.previousTrack ? 'Previous track' : adjacent.previousRelease ? 'Previous release' : 'Previous track or release'],
+    [nextButton, adjacent.nextTrack || adjacent.nextRelease, adjacent.nextTrack ? 'Next track' : adjacent.nextRelease ? 'Next release' : 'Next track or release']
+  ].forEach(([button, target, label]) => {
+    if (!button) return;
+    const available = Boolean(target);
+    button.disabled = !available;
+    button.setAttribute('aria-disabled', String(!available));
+    button.setAttribute('aria-label', available ? label : `${label} unavailable`);
+    button.title = available ? label : `${label} unavailable`;
+  });
+}
+
+function notifyHumanPlayerInput(source) {
+  window.dispatchEvent(new CustomEvent('seph-human-player-input', {
+    detail: {
+      source,
+      track_id: currentPlayingTrackId,
+      release_record_id: currentPlayingReleaseId
+    }
+  }));
+}
+
 function rememberPlayerHome() {
   const player = document.getElementById('custom-player');
   if (!player || !player.parentNode) return null;
@@ -4766,6 +5578,7 @@ function restorePlayerToPanel() {
     }
   }
   player.classList.remove('is-floating');
+  delete document.documentElement.dataset.playerFloating;
 }
 
 function floatPlayerInViewport() {
@@ -4775,10 +5588,43 @@ function floatPlayerInViewport() {
   if (player.classList.contains('hidden')) return;
   if (player.parentNode !== host) host.appendChild(player);
   player.classList.add('is-floating');
+  document.documentElement.dataset.playerFloating = 'true';
 }
 
 function getPendingPlaybackSummary() {
   return pendingPlayback ? { ...pendingPlayback } : null;
+}
+
+function getPlayerVolume() {
+  const volume = Number(audio.volume);
+  return Number.isFinite(volume) ? Math.min(1, Math.max(0, volume)) : PREVIEW_AUDIO_VOLUME;
+}
+
+function syncPlayerVolumeControl() {
+  // Volume is intentionally controlled through WebMCP only. Keep this hook so
+  // existing player-state updates remain stable without reintroducing a UI
+  // slider or a second mute-looking control in the orb.
+}
+
+function setPlayerVolume(value, { source = 'agent' } = {}) {
+  const requested = Number(value);
+  if (!Number.isFinite(requested) || requested < 0 || requested > 1) {
+    return playerErrorResult('INVALID_VOLUME', 'volume must be a number between 0 and 1.');
+  }
+
+  audio.volume = requested;
+  syncPlayerVolumeControl();
+  diagnostics.record('audio', 'preview_volume_changed', {
+    source,
+    volume: requested,
+    volume_percent: Math.round(requested * 100)
+  }, { snapshot: true });
+  return {
+    ok: true,
+    volume: requested,
+    volume_percent: Math.round(requested * 100),
+    ...emitPlayerState('volume_changed')
+  };
 }
 
 function getUiContext() {
@@ -4804,6 +5650,13 @@ function getUiContext() {
       || (demoCompletion.record_id && demoCompletedRecordIds.has(demoCompletion.record_id))
   );
   const myCrateIds = readLocalCrateItems();
+  const previousTrack = getAdjacentTrack(-1);
+  const nextTrack = getAdjacentTrack(1);
+  const releaseNavigationAnchor = getNavigationAnchorRecordId({ selectionFirst: true });
+  const previousRelease = getAdjacentRelease(-1, { anchorRecordId: releaseNavigationAnchor });
+  const nextRelease = getAdjacentRelease(1, { anchorRecordId: releaseNavigationAnchor });
+  const previousPlayingRelease = getAdjacentRelease(-1);
+  const nextPlayingRelease = getAdjacentRelease(1);
 
   return {
     view,
@@ -4838,15 +5691,30 @@ function getUiContext() {
           : null,
         completion_modal_open: demoCompletion.open,
         completion_modal_record_id: demoCompletion.record_id,
+        download_tool: 'download_release',
         audio_download_available: false
       }
       : { simulator: false },
     agent_focus_record_ids: [...agentFocusRecordIds],
+    orb: getAgentOrbVisualState(),
+    release_navigation: {
+      previous_available: Boolean(previousRelease),
+      next_available: Boolean(nextRelease),
+      previous_record_id: previousRelease?.recordId || null,
+      next_record_id: nextRelease?.recordId || null
+    },
     player: {
       track_id: currentPlayingTrackId,
       track_title: currentPlayingTrack?.title || null,
       release_record_id: currentPlayingReleaseId,
-      is_playing: Boolean(currentPlayingTrackId && !audio.paused)
+      is_playing: Boolean(currentPlayingTrackId && !audio.paused),
+      previous_available: Boolean(previousTrack),
+      next_available: Boolean(nextTrack),
+      previous_release_available: Boolean(previousPlayingRelease),
+      next_release_available: Boolean(nextPlayingRelease),
+      volume: getPlayerVolume(),
+      floating: document.documentElement.dataset.playerFloating === 'true',
+      cover_url: resolveCatalogImageUrl(getCurrentPlayingRelease()?.image) || null
     }
   };
 }
@@ -4864,6 +5732,7 @@ function syncPendingPlaybackState() {
       requiresGesture ? 'Play preview (tap or click to start)' : 'Play/Pause'
     );
   }
+  syncAgentOrbSurface();
 }
 
 function setPendingPlayback() {
@@ -4924,6 +5793,7 @@ function getPlayerState() {
     ? audioDuration
     : Number.isFinite(declaredDuration) && declaredDuration > 0 ? declaredDuration : null;
   const currentTime = Number(audio.currentTime);
+  const volume = getPlayerVolume();
   const currentRelease = currentPlayingReleaseId ? findMasterCatalogItem(currentPlayingReleaseId) : null;
   let status = 'idle';
   if (currentPlayingTrackId) {
@@ -4948,6 +5818,8 @@ function getPlayerState() {
     release_title: currentRelease?.title || null,
     muted: Boolean(audio.muted || !siteAudioEnabled),
     site_audio_enabled: siteAudioEnabled,
+    volume,
+    volume_percent: Math.round(volume * 100),
     requires_user_gesture: Boolean(pendingPlayback),
     pending_playback: getPendingPlaybackSummary(),
     source: audio.currentSrc || audio.src || currentPlayingTrack?.preview_url || null,
@@ -4972,6 +5844,7 @@ function setPlayerUiPlaying(isPlaying) {
   if (playIcon) playIcon.classList.toggle('hidden', Boolean(isPlaying));
   if (pauseIcon) pauseIcon.classList.toggle('hidden', !isPlaying);
   if (playPauseBtn) playPauseBtn.classList.toggle('is-playing', Boolean(isPlaying));
+  syncAgentOrbSurface();
 }
 
 function playerErrorResult(code, message, extra = {}) {
@@ -5251,8 +6124,9 @@ function playTrack(track, trackItemElement, { toggleIfCurrent = true, recordId =
   if (parentRelease) {
     const recordId = getCrateRecordId(parentRelease);
     currentPlayingReleaseId = recordId || currentPlayingReleaseId;
-    if (playerCover && parentRelease.image) {
-      playerCover.src = parentRelease.image;
+    const parentCoverUrl = resolveCatalogImageUrl(parentRelease.image);
+    if (playerCover && parentCoverUrl) {
+      playerCover.src = parentCoverUrl;
       playerCover.alt = `${parentRelease.title || 'Record'} Cover`;
       playerCover.classList.remove('hidden');
     }
@@ -5287,6 +6161,7 @@ function playTrack(track, trackItemElement, { toggleIfCurrent = true, recordId =
   setPlayerUiPlaying(false);
   audio.src = previewUrl;
   audio.load();
+  syncAgentOrbSurface();
   emitPlayerState('track_loaded');
   return startAudioPlayback();
 }
@@ -5310,10 +6185,15 @@ function toggleAudioPlayback(source = 'player_control') {
   }
 }
 
-function pauseAudio() {
+function pauseAudio({ source = 'agent' } = {}) {
   if (!currentPlayingTrackId || !(audio.currentSrc || audio.src)) {
     return playerErrorResult('NO_TRACK_LOADED', 'No track is loaded in the player.');
   }
+  diagnostics.record('audio', 'preview_pause_requested', {
+    source,
+    track_id: currentPlayingTrackId,
+    release_record_id: currentPlayingReleaseId
+  });
   invalidatePlaybackRequests();
   clearPendingPlayback();
   audio.pause();
@@ -5322,24 +6202,81 @@ function pauseAudio() {
   return emitPlayerState('playback_paused');
 }
 
-function playNextTrack() {
-  const parentRelease = (currentPlayingReleaseId && findMasterCatalogItem(currentPlayingReleaseId))
-    || findReleaseByTrackId(currentPlayingTrackId);
-  if (!parentRelease || !parentRelease.tracks) return;
-
-  const nextTrackIndex = parentRelease.tracks.findIndex(t => t.id === currentPlayingTrackId) + 1;
-
-  if (nextTrackIndex < parentRelease.tracks.length) {
-    const nextTrack = parentRelease.tracks[nextTrackIndex];
-    const currentDetailSlug = document.getElementById('buy-btn')?.getAttribute('data-slug');
-    const parentSlug = getCrateRecordId(parentRelease);
-    let trackItemEl = null;
-    if (currentDetailSlug === parentSlug) {
-      const trackItems = document.querySelectorAll('.track-item');
-      if (trackItems[nextTrackIndex]) trackItemEl = trackItems[nextTrackIndex];
-    }
-    playTrack(nextTrack, trackItemEl);
+function playAdjacentTrack(direction = 1, source = 'agent') {
+  const target = getAdjacentTrack(direction);
+  if (!target) {
+    const label = Number(direction) < 0 ? 'previous' : 'next';
+    return Promise.resolve(playerErrorResult(
+      Number(direction) < 0 ? 'NO_PREVIOUS_TRACK' : 'NO_NEXT_TRACK',
+      `There is no ${label} track in the current release.`
+    ));
   }
+
+  diagnostics.record('audio', 'preview_adjacent_requested', {
+    direction: Number(direction) < 0 ? 'previous' : 'next',
+    source,
+    from_track_id: currentPlayingTrackId,
+    to_track_id: target.track?.id || null,
+    release_record_id: target.recordId
+  });
+  return playTrack(target.track, target.trackItemElement, {
+    toggleIfCurrent: false,
+    recordId: target.recordId
+  });
+}
+
+function playNextTrack(source = 'autoplay') {
+  return playAdjacentTrack(1, source);
+}
+
+function playPreviousTrack(source = 'agent') {
+  return playAdjacentTrack(-1, source);
+}
+
+function playAdjacentPreview(direction = 1, source = 'orb') {
+  const delta = Number(direction) < 0 ? -1 : 1;
+  const adjacentTrack = getAdjacentTrack(delta);
+  if (adjacentTrack) {
+    return playTrack(adjacentTrack.track, adjacentTrack.trackItemElement, {
+      toggleIfCurrent: false,
+      recordId: adjacentTrack.recordId
+    });
+  }
+
+  // Keep the orb transport continuous across album boundaries: when the
+  // current release is at its first/last track, move to the neighbouring
+  // release and preview its last/first track respectively.
+  const anchor = getNavigationAnchorRecordId();
+  if (isUserCrateViewActive || currentSearchQuery) {
+    showMainCrateView({ preservePhysicalOrder: true });
+  }
+  const target = getAdjacentRelease(delta, { anchorRecordId: anchor });
+  if (!target) {
+    const label = delta < 0 ? 'previous' : 'next';
+    return Promise.resolve(playerErrorResult(
+      delta < 0 ? 'NO_PREVIOUS_RELEASE' : 'NO_NEXT_RELEASE',
+      `There is no ${label} release in the visible Shop crate.`
+    ));
+  }
+
+  const focused = focusRecordById(target.recordId);
+  if (!focused.ok) return Promise.resolve(focused);
+  const tracks = Array.isArray(target.release?.tracks) ? target.release.tracks : [];
+  const track = delta < 0 ? tracks[tracks.length - 1] : tracks[0];
+  if (!track) return Promise.resolve(focused);
+
+  diagnostics.record('audio', 'preview_release_boundary_requested', {
+    source,
+    direction: delta < 0 ? 'previous' : 'next',
+    from_release_record_id: anchor || null,
+    to_release_record_id: target.recordId,
+    track_id: track.id || null
+  }, { snapshot: true });
+  const trackItemElement = findTrackElement(target.recordId, track.id);
+  return playTrack(track, trackItemElement, {
+    toggleIfCurrent: false,
+    recordId: target.recordId
+  });
 }
 
 function formatTime(seconds) {
@@ -6007,12 +6944,9 @@ function rebuildUserCrateRecords() {
       metalness: 0.05
     });
     
-    let imageUrl = item.image;
+    const imageUrl = resolveCatalogImageUrl(item.image);
     if (imageUrl) {
-      const isExternal = imageUrl.startsWith('http') && !imageUrl.includes(window.location.hostname);
-      if (isExternal) {
-        imageUrl = '/api/proxy-image?url=' + encodeURIComponent(imageUrl);
-      }
+      const isExternal = isCrossOriginCatalogImage(imageUrl);
       
       const cachedTexture = textureCache.get(imageUrl);
       if (cachedTexture) {
@@ -6288,6 +7222,11 @@ function updateUIControlsState() {
   if (panelTotalSpan) {
     panelTotalSpan.innerText = `€${(checkoutSummary.total_cents / 100).toFixed(2)}`;
   }
+
+  // Release visibility and selection can change without an audio event
+  // (for example after adding/removing a crate item). Keep the orb transport
+  // buttons in sync with the currently navigable track/release surface.
+  syncPlayerTransportControls();
 }
 
 function collapseFilterSwitcher() {

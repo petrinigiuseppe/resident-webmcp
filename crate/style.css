@@ -106,12 +106,18 @@ input, textarea, [contenteditable="true"], .postit-code, .postit-text, .postit-p
   align-items: center;
   justify-content: center;
   padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  /* The orb edge is rendered by the soft lens/rim layers below. A CSS
+     border reads as a flat sticker, especially against the light theme. */
+  border: 0;
   border-radius: 50%;
   background:
     radial-gradient(circle at 50% 26%, rgba(255, 255, 255, 0.18), transparent 34%),
     linear-gradient(145deg, rgba(255, 255, 255, 0.14), rgba(5, 5, 5, 0.54));
-  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.16), 0 0 0 1px rgba(255, 255, 255, 0.025);
+  box-shadow:
+    inset 16px 14px 28px rgba(255, 255, 255, 0.12),
+    inset -22px -26px 34px rgba(0, 0, 0, 0.16),
+    0 16px 38px rgba(0, 0, 0, 0.16),
+    0 0 28px rgba(255, 255, 255, 0.08);
   backdrop-filter: blur(22px) saturate(125%);
   -webkit-backdrop-filter: blur(22px) saturate(125%);
   opacity: 0.42;
@@ -146,13 +152,21 @@ input, textarea, [contenteditable="true"], .postit-code, .postit-text, .postit-p
 .agent-mode-hud::after {
   content: '';
   position: absolute;
-  inset: -8px;
-  z-index: -1;
-  border: 1px solid rgba(255, 255, 255, 0.11);
+  inset: -5px;
+  z-index: 1;
+  border: 0;
   border-radius: 50%;
-  opacity: 0.3;
-  transform: scale(0.96);
-  transition: opacity 0.6s ease, transform 0.7s ease;
+  background:
+    radial-gradient(circle at 30% 18%, transparent 0 46%, rgba(255, 255, 255, 0.16) 64%, rgba(255, 255, 255, 0.04) 75%, transparent 100%),
+    radial-gradient(circle at 70% 78%, transparent 0 52%, rgba(0, 0, 0, 0.18) 75%, transparent 100%);
+  box-shadow:
+    inset 12px 11px 24px rgba(255, 255, 255, 0.16),
+    inset -18px -21px 30px rgba(0, 0, 0, 0.18),
+    0 0 22px rgba(255, 255, 255, 0.08);
+  filter: blur(0.85px);
+  opacity: 0.82;
+  transform: none;
+  transition: opacity 0.6s ease;
   pointer-events: none;
 }
 
@@ -185,8 +199,9 @@ html[data-agent-mode="returning"] .agent-mode-hud {
   --agent-muted: rgba(193, 225, 197, 0.62);
   border-color: rgba(138, 203, 146, 0.28);
   background:
-    radial-gradient(circle at 50% 32%, rgba(138, 203, 146, 0.1), transparent 58%),
-    linear-gradient(145deg, rgba(138, 203, 146, 0.08), rgba(5, 12, 7, 0.58));
+    radial-gradient(circle at 28% 17%, rgba(214, 255, 220, 0.22), transparent 38%),
+    radial-gradient(circle at 72% 82%, rgba(0, 18, 7, 0.34), transparent 72%),
+    linear-gradient(145deg, rgba(42, 105, 54, 0.94), rgba(4, 20, 8, 0.98));
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.16), 0 0 28px rgba(138, 203, 146, 0.1);
 }
 
@@ -221,8 +236,9 @@ html[data-agent-mode="standby"] .agent-mode-core,
 html[data-agent-mode="returning"] .agent-mode-core {
   opacity: 0.72;
   background:
-    radial-gradient(circle at 50% 34%, rgba(174, 231, 180, 0.2), transparent 62%),
-    linear-gradient(145deg, rgba(138, 203, 146, 0.1), rgba(2, 13, 5, 0.14));
+    radial-gradient(ellipse at 29% 18%, rgba(225, 255, 229, 0.28) 0 3%, rgba(225, 255, 229, 0.08) 18%, transparent 38%),
+    radial-gradient(circle at 70% 82%, rgba(0, 12, 5, 0.36), transparent 72%),
+    linear-gradient(145deg, rgba(138, 203, 146, 0.18), rgba(2, 13, 5, 0.3));
   animation: agentCoreBreathe 4.8s ease-in-out infinite;
 }
 
@@ -249,25 +265,79 @@ html[data-agent-mode="override"] .agent-mode-hud {
   z-index: 0;
   border-radius: 50%;
   background:
-    radial-gradient(circle at 50% 34%, rgba(255, 255, 255, 0.13), transparent 62%),
-    linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.015));
-  opacity: 0.42;
+    radial-gradient(ellipse at 30% 17%, rgba(255, 255, 255, 0.38) 0 3%, rgba(255, 255, 255, 0.12) 16%, transparent 38%),
+    radial-gradient(circle at 50% 50%, transparent 0 45%, rgba(255, 255, 255, 0.1) 61%, rgba(0, 0, 0, 0.22) 82%, rgba(0, 0, 0, 0.4) 100%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.018));
+  box-shadow:
+    inset 13px 12px 24px rgba(255, 255, 255, 0.12),
+    inset -20px -24px 32px rgba(0, 0, 0, 0.22);
+  opacity: 0.58;
   pointer-events: none;
   transition: opacity 0.7s ease, background 0.7s ease;
+}
+
+/* Static lens layer: the cover stays still, while the highlight and edge
+   falloff make the circular crop read as a convex glass sphere rather than a
+   flat image inside a circle. */
+.agent-mode-lens {
+  position: absolute;
+  inset: -1px;
+  z-index: 1;
+  border-radius: 50%;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 32% 17%, rgba(255, 255, 255, 0.56) 0 3%, rgba(255, 255, 255, 0.16) 14%, transparent 32%),
+    radial-gradient(circle at 50% 50%, transparent 0 47%, rgba(255, 255, 255, 0.11) 57%, rgba(255, 255, 255, 0.025) 65%, transparent 73%),
+    radial-gradient(circle at 50% 50%, transparent 0 51%, rgba(0, 0, 0, 0.08) 61%, rgba(0, 0, 0, 0.36) 76%, rgba(0, 0, 0, 0.86) 100%);
+  box-shadow:
+    inset 15px 13px 29px rgba(255, 255, 255, 0.28),
+    inset -24px -27px 42px rgba(0, 0, 0, 0.76),
+    0 0 20px rgba(255, 255, 255, 0.08);
+  opacity: 0.42;
+  filter: blur(0.2px);
+  transition: opacity 0.5s ease;
+}
+
+.agent-mode-lens::before {
+  content: '';
+  position: absolute;
+  top: 7%;
+  left: 14%;
+  width: 43%;
+  height: 25%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.1) 40%, transparent 72%);
+  filter: blur(2px);
+  opacity: 0.72;
+  transform: rotate(-22deg);
+}
+
+.agent-mode-lens::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border: 0;
+  border-radius: 50%;
+  box-shadow:
+    inset 0 0 18px rgba(255, 255, 255, 0.1),
+    inset 0 0 32px rgba(0, 0, 0, 0.12);
+  filter: blur(0.45px);
 }
 
 .agent-mode-label,
 .agent-mode-detail,
 .agent-mode-footer {
   position: relative;
-  z-index: 1;
+  z-index: 2;
 }
 
 .agent-mode-copy {
   position: absolute;
   top: 50%;
   left: 50%;
-  z-index: 1;
+  z-index: 2;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -366,6 +436,56 @@ html[data-agent-mode="override"] .agent-mode-hud {
   outline: 1px solid var(--agent-color);
   outline-offset: 4px;
   border-radius: 50%;
+}
+
+.agent-mode-footer {
+  gap: 8px;
+}
+
+.agent-orb-control {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--agent-muted);
+  cursor: pointer;
+  opacity: 0.92;
+  pointer-events: auto !important;
+  transition: color 0.25s ease, opacity 0.25s ease, border-color 0.25s ease, background 0.25s ease;
+}
+
+.agent-orb-control:hover,
+.agent-orb-control:focus-visible {
+  color: var(--agent-color);
+  border-color: currentColor;
+  background: rgba(255, 255, 255, 0.06);
+  opacity: 1;
+}
+
+.agent-orb-control:focus-visible {
+  outline: 1px solid var(--agent-color);
+  outline-offset: 4px;
+}
+
+.agent-orb-disco-icon,
+.agent-orb-disco-icon svg {
+  display: block;
+  width: 15px;
+  height: 15px;
+}
+
+.agent-orb-disco-icon svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.35;
 }
 
 .agent-sound-icon,
@@ -755,6 +875,8 @@ html[data-agent-mode="returning"] #canvas-container {
   width: 100%;
   position: relative;
   background: linear-gradient(to bottom, rgba(5, 5, 5, 0.8) 0%, rgba(5, 5, 5, 0) 100%);
+  backdrop-filter: blur(16px) saturate(125%);
+  -webkit-backdrop-filter: blur(16px) saturate(125%);
   pointer-events: none !important;
 }
 
@@ -878,6 +1000,8 @@ html[data-agent-mode="returning"] #canvas-container {
   left: 50%;
   z-index: 1205;
   width: min(340px, calc(100vw - 40px));
+  box-sizing: border-box;
+  padding-inline: 34px;
   transform: translate(-50%, -50%);
   color: rgba(255, 255, 255, 0.62);
   pointer-events: none;
@@ -915,6 +1039,21 @@ html[data-agent-mode="returning"] #canvas-container {
   line-height: 1.3;
 }
 
+.mobile-agent-hint-operation {
+  display: block;
+  margin-top: 3px;
+  color: var(--agent-muted);
+  font-family: var(--font-mono);
+  font-size: 0.54rem;
+  letter-spacing: 0.12em;
+  line-height: 1.35;
+  text-transform: uppercase;
+}
+
+.mobile-agent-hint-operation[hidden] {
+  display: none !important;
+}
+
 html[data-agent-mode="loading"] .mobile-agent-hint,
 html[data-agent-mode="active"] .mobile-agent-hint,
 html[data-agent-mode="busy"] .mobile-agent-hint,
@@ -943,6 +1082,12 @@ html[data-agent-mode="returning"] .mobile-agent-hint {
   }
 }
 
+@media (max-width: 1023px) {
+  html[data-player-floating="true"] .interaction-helper {
+    bottom: clamp(164px, 24vh, 216px);
+  }
+}
+
 /* Crate Navigation Controls */
 .crate-navigation {
   position: absolute;
@@ -959,8 +1104,6 @@ html[data-agent-mode="returning"] .mobile-agent-hint {
 .crate-navigation > * {
   pointer-events: auto;
 }
-
-
 
 .nav-arrow {
   background: none;
@@ -1077,6 +1220,8 @@ html[data-agent-mode="returning"] .mobile-agent-hint {
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   border-left: 1px solid var(--panel-border);
+  /* Keep the drawer above the bottom navigation. The nav's checkout pill is
+     intentionally z-index 1000; the agent HUD remains above both at 1200. */
   z-index: 1180;
   display: flex;
   flex-direction: column;
@@ -1087,6 +1232,13 @@ html[data-agent-mode="returning"] .mobile-agent-hint {
 
 .details-panel.hidden {
   transform: translateX(100%);
+}
+
+/* The open drawer owns the checkout action. Hide the duplicate bottom-nav
+   pill while it is open so it cannot straddle the drawer edge. */
+#ui-overlay:has(#details-panel:not(.hidden)) #checkout-btn {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .drag-handle-container {
@@ -1450,6 +1602,8 @@ html[data-local-preview="true"] .cover-thumbnail-wrapper::before {
   gap: 8px;
   margin-top: auto; /* Push player to bottom of details flow */
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
 }
 
 .custom-player.hidden {
@@ -1590,6 +1744,7 @@ html[data-local-preview="true"] .player-cover-link::before {
 
 .player-track-info {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -1671,7 +1826,8 @@ html[data-local-preview="true"] .player-cover-link::before {
   font-weight: 600;
   font-size: 0.85rem;
   padding: 16px 24px;
-  border-radius: var(--crate-surface-radius);
+  /* Purchase actions share the floating player's capsule silhouette. */
+  border-radius: 999px;
   transition: var(--transition-smooth);
   box-shadow: 0 4px 15px rgba(3, 255, 0, 0.25), 0 0 20px rgba(3, 255, 0, 0.15);
   text-transform: uppercase;
@@ -1860,11 +2016,6 @@ html[data-local-preview="true"] .player-cover-link::before {
 
   .mobile-agent-hint {
     display: flex;
-  }
-
-  /* Mobile keeps the mode hint lightweight; sound remains desktop-only for now. */
-  .agent-sound-toggle {
-    display: none !important;
   }
 
   .agent-debug-trigger {
@@ -2864,6 +3015,7 @@ html[data-local-preview="true"] .player-cover-link::before {
   .agent-mode-hud::before,
   .agent-mode-hud::after,
   .agent-mode-core,
+  .agent-mode-lens,
   .agent-mode-intro,
   .agent-crate-frame,
   #canvas-container::before,
@@ -4658,7 +4810,7 @@ html[data-agent-operation="listening"] .agent-mode-core {
   height: auto !important;
   margin-top: 10px;
   padding: 15px 20px !important;
-  border-radius: var(--crate-surface-radius) !important;
+  border-radius: 999px !important;
   font-family: var(--font-sans);
   font-size: 0.85rem;
   letter-spacing: 0.08em;
@@ -4675,60 +4827,217 @@ html[data-agent-operation="listening"] .agent-mode-core {
   outline-offset: 3px;
 }
 
-/* Runtime hook contract for the next pass: a cover image may be mounted in
-   the HUD with the current preview source. The image stays a soft, blurred
-   bubble behind the copy so the orb remains readable. */
+/* Runtime hook contract: the active preview cover is a full-bleed liquid
+   bubble behind the orb copy. The image is mounted by crate.js, while this
+   layer keeps the presentation independent from the WebGL crate renderer. */
 .agent-mode-cover {
   position: absolute;
-  inset: 12%;
+  inset: 0;
   z-index: 0;
-  width: 76%;
-  height: 76%;
+  width: 100%;
+  height: 100%;
   object-fit: cover;
   border-radius: 50%;
-  opacity: 0.22;
-  filter: saturate(0.78) contrast(0.9) blur(1.5px);
-  mix-blend-mode: screen;
-  -webkit-mask-image: radial-gradient(circle, #000 54%, transparent 78%);
-  mask-image: radial-gradient(circle, #000 54%, transparent 78%);
+  opacity: 0.72;
+  filter: saturate(0.8) contrast(0.92) blur(1.35px);
+  mix-blend-mode: normal;
   pointer-events: none;
-  transition: opacity 0.5s ease, transform 0.7s cubic-bezier(0.16, 1, 0.3, 1), filter 0.5s ease;
+  transition: opacity 0.5s ease, filter 0.5s ease;
+}
+
+.agent-mode-hud:has(.agent-mode-cover[src]:not([src=""])) {
+  /* Keep the HUD itself unmasked so footer controls and the soft outer glow
+     remain intact. The artwork owns its own spherical crop below. */
+  clip-path: none;
+  background:
+    radial-gradient(circle at 72% 82%, rgba(0, 0, 0, 0.18), transparent 65%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.018), transparent 54%);
+  border-color: rgba(255, 255, 255, 0.34);
+  box-shadow:
+    inset -22px -25px 34px rgba(0, 0, 0, 0.48),
+    0 16px 38px rgba(0, 0, 0, 0.24),
+    0 0 32px rgba(255, 255, 255, 0.08);
+}
+
+.agent-mode-hud:has(.agent-mode-cover[src]:not([src=""])) .agent-mode-cover {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.82;
+  /* The crop is applied to the image, not the HUD. This prevents the
+     displacement filter from painting pixels outside the orb boundary. */
+  -webkit-clip-path: circle(50% at 50% 50%);
+  clip-path: circle(50% at 50% 50%);
+  -webkit-mask-image: radial-gradient(circle 50% at 50% 50%, #000 0 78%, rgba(0, 0, 0, 0.96) 88%, rgba(0, 0, 0, 0.5) 96%, transparent 100%);
+  mask-image: radial-gradient(circle 50% at 50% 50%, #000 0 78%, rgba(0, 0, 0, 0.96) 88%, rgba(0, 0, 0, 0.5) 96%, transparent 100%);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  filter: url("#agent-orb-liquid") saturate(0.78) contrast(0.9) blur(1.8px);
+  transform: scale(1.015);
+}
+
+.agent-mode-hud:has(.agent-mode-cover[src]:not([src=""])) .agent-mode-lens {
+  opacity: 0.72;
+  /* Keep the spherical falloff, but remove the hard white hotspot in cover
+     mode; the artwork should remain the visual focus. */
+  background:
+    radial-gradient(circle at 50% 50%, transparent 0 47%, rgba(255, 255, 255, 0.08) 57%, rgba(255, 255, 255, 0.018) 65%, transparent 73%),
+    radial-gradient(circle at 50% 50%, transparent 0 51%, rgba(0, 0, 0, 0.08) 61%, rgba(0, 0, 0, 0.36) 76%, rgba(0, 0, 0, 0.86) 100%);
+}
+
+.agent-mode-hud:has(.agent-mode-cover[src]:not([src=""])) .agent-mode-lens::before {
+  opacity: 0;
 }
 
 .agent-mode-hud:has(.agent-mode-cover[src]:not([src=""])) .agent-mode-core {
-  opacity: 0.22;
+  opacity: 1;
+  background:
+    radial-gradient(ellipse at 70% 82%, rgba(0, 0, 0, 0.58) 0%, rgba(0, 0, 0, 0.24) 43%, transparent 74%),
+    radial-gradient(circle at 50% 50%, transparent 46%, rgba(255, 255, 255, 0.04) 63%, rgba(0, 0, 0, 0.34) 82%, rgba(0, 0, 0, 0.62) 100%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.04), transparent 54%);
+  animation: none;
 }
 
-.agent-mode-hud:has(.agent-mode-cover[src]:not([src=""])) .agent-mode-copy {
-  text-shadow: 0 1px 16px rgba(0, 0, 0, 0.55);
+.agent-mode-hud:has(.agent-mode-cover[src]:not([src=""])) .agent-mode-label,
+.agent-mode-hud:has(.agent-mode-cover[src]:not([src=""])) .agent-mode-detail {
+  /* Difference turns white copy dark on bright artwork and light on dark
+     artwork, keeping the overlay legible without per-cover JS sampling. */
+  color: #ffffff;
+  mix-blend-mode: difference;
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.96),
+    0 0 8px rgba(0, 0, 0, 0.82),
+    0 0 16px rgba(0, 0, 0, 0.58),
+    0 -1px 8px rgba(255, 255, 255, 0.24);
+}
+
+.agent-mode-hud:has(.agent-mode-cover[src]:not([src=""]))::after {
+  inset: 0;
+  opacity: 1;
+  transform: none;
+  border-color: rgba(255, 255, 255, 0.28);
+  background:
+    radial-gradient(circle at 72% 82%, rgba(0, 0, 0, 0.54), transparent 68%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.05), transparent 54%);
+  box-shadow:
+    inset -17px -19px 32px rgba(0, 0, 0, 0.48),
+    0 0 18px rgba(255, 255, 255, 0.06);
+}
+
+/* Disco mode owns its own complete surface. Do not leave the cover-mode rim
+   painted above the canvas, otherwise the previous artwork reads as a ghost
+   outline around the mirror ball. */
+.agent-mode-hud[data-orb-visual="disco_ball"]::after {
+  opacity: 0;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.agent-mode-hud[data-orb-visual="disco_ball"]:has(.agent-mode-cover[src]:not([src=""]))::after {
+  opacity: 0;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .agent-mode-hud:hover .agent-mode-cover,
 .agent-mode-hud:focus-within .agent-mode-cover {
-  opacity: 0.3;
-  transform: scale(1.04);
-  filter: saturate(0.86) contrast(0.94) blur(1px);
+  opacity: 0.78;
+  filter: saturate(0.84) contrast(0.94) blur(1.35px);
 }
 
-/* The runtime-owned button becomes a quiet play/pause affordance only when a
-   preview is loaded. Keyboard focus keeps it discoverable without hover. */
-.agent-mode-play-btn {
+/* The orb owns the whole preview transport. It stays quiet until a track is
+   loaded and then reveals skip/play/skip together, so the player bar remains
+   a compact status surface instead of a second controller. */
+.agent-orb-transport {
   position: absolute;
   top: 50%;
   left: 50%;
-  z-index: 2;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(0.86);
+  transition: opacity 0.24s ease, transform 0.32s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+.agent-mode-hud[data-track-loaded="true"]:hover .agent-orb-transport,
+.agent-mode-hud[data-track-loaded="true"]:focus-within .agent-orb-transport,
+.agent-mode-hud[data-track-loaded="true"] .agent-orb-transport:has(:focus-visible) {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.agent-orb-transport-btn {
+  display: grid;
+  place-items: center;
+  width: 27px;
+  height: 27px;
+  flex: 0 0 27px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  background: rgba(5, 5, 5, 0.34);
+  color: var(--text-primary);
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease, opacity 0.2s ease, transform 0.2s ease;
+}
+
+.agent-orb-transport-btn svg {
+  display: block;
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.55;
+}
+
+.agent-orb-transport-btn:hover,
+.agent-orb-transport-btn:focus-visible {
+  color: var(--agent-color);
+  border-color: currentColor;
+  background: rgba(5, 5, 5, 0.58);
+  transform: scale(1.06);
+}
+
+.agent-orb-transport-btn:focus-visible {
+  outline: 1px solid currentColor;
+  outline-offset: 3px;
+}
+
+.agent-orb-transport-btn:disabled {
+  opacity: 0.28;
+  cursor: default;
+  pointer-events: none;
+  transform: none;
+}
+
+/* The central runtime-owned button is the play/pause affordance. Keyboard
+   focus keeps the complete transport discoverable without hover. */
+.agent-mode-play-btn {
   display: grid;
   place-items: center;
   width: 38px;
   height: 38px;
+  flex: 0 0 38px;
   padding: 0;
   border: 1px solid rgba(255, 255, 255, 0.35);
   border-radius: 50%;
   background: rgba(5, 5, 5, 0.38);
   color: var(--text-primary);
-  opacity: 0;
-  pointer-events: none;
-  transform: translate(-50%, -50%) scale(0.86);
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
   cursor: pointer;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.24);
   backdrop-filter: blur(10px);
@@ -4736,12 +5045,8 @@ html[data-agent-operation="listening"] .agent-mode-core {
   transition: opacity 0.24s ease, transform 0.32s cubic-bezier(0.2, 0.9, 0.3, 1), background 0.24s ease;
 }
 
-.agent-mode-hud[data-track-loaded="true"]:hover .agent-mode-play-btn,
-.agent-mode-hud[data-track-loaded="true"]:focus-within .agent-mode-play-btn,
-.agent-mode-hud[data-track-loaded="true"] .agent-mode-play-btn:focus-visible {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translate(-50%, -50%) scale(1);
+.agent-mode-play-btn[hidden] {
+  display: none !important;
 }
 
 .agent-mode-play-btn:hover,
@@ -4754,6 +5059,197 @@ html[data-agent-operation="listening"] .agent-mode-core {
   outline-offset: 4px;
 }
 
+.agent-mode-play-btn svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+/* Previous, play/pause and next are one transport family. The skip buttons
+   intentionally use the same hit area, border, fill and shadow as play. */
+.agent-orb-transport-btn,
+.agent-mode-play-btn {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 50%;
+  background: rgba(5, 5, 5, 0.38);
+  color: var(--text-primary);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.agent-orb-transport-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.agent-orb-transport-btn:hover,
+.agent-orb-transport-btn:focus-visible,
+.agent-mode-play-btn:hover,
+.agent-mode-play-btn:focus-visible {
+  color: var(--agent-color);
+  border-color: currentColor;
+  background: rgba(5, 5, 5, 0.56);
+  transform: scale(1.06);
+}
+
+.agent-mode-hud[data-orb-visual="disco_ball"] .agent-mode-lens {
+  opacity: 0;
+}
+
+.agent-mode-hud[data-orb-visual="disco_ball"]:has(.agent-mode-cover[src]:not([src=""])) .agent-mode-lens {
+  opacity: 0;
+}
+
+.agent-mode-hud[data-orb-visual="disco_ball"] {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.34);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.22), 0 0 34px rgba(255, 255, 255, 0.12);
+}
+
+/* Active-state themes otherwise leave a green/white layer showing through the
+   transparent grout between WebGL mirror tiles. The disco canvas is the only
+   visual surface in this mode. */
+html[data-agent-mode] .agent-mode-hud[data-orb-visual="disco_ball"] {
+  background: transparent;
+}
+
+.agent-mode-hud[data-orb-visual="disco_ball"] .agent-mode-cover {
+  opacity: 0;
+  transform: scale(0.9);
+  filter: saturate(0.7);
+}
+
+/* :has() carries the cover attribute selectors into specificity, so repeat
+   that condition here to make the disco surface win deterministically. */
+.agent-mode-hud[data-orb-visual="disco_ball"]:has(.agent-mode-cover[src]:not([src=""])) .agent-mode-cover {
+  opacity: 0;
+  transform: scale(0.9);
+  filter: none;
+}
+
+.agent-mode-hud[data-orb-visual="disco_ball"] .agent-mode-core {
+  opacity: 0;
+  background: transparent;
+  animation: none;
+}
+
+.agent-mode-hud[data-orb-visual="disco_ball"]:has(.agent-mode-cover[src]:not([src=""])) .agent-mode-core {
+  opacity: 0;
+  background: transparent;
+  animation: none;
+}
+
+.agent-mode-hud[data-orb-visual="disco_ball"] .agent-mode-copy {
+  color: #ffffff;
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 1),
+    0 2px 4px rgba(0, 0, 0, 0.98),
+    0 0 11px rgba(0, 0, 0, 0.98),
+    0 0 24px rgba(0, 0, 0, 0.84);
+}
+
+.agent-mode-hud[data-orb-visual="disco_ball"] .agent-mode-label,
+.agent-mode-hud[data-orb-visual="disco_ball"] .agent-mode-detail {
+  color: #ffffff;
+}
+
+.agent-orb-disco-ball {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.72);
+  filter: drop-shadow(0 0 18px rgba(255, 255, 255, 0.16));
+  transition: opacity 0.38s ease, transform 0.58s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.agent-orb-disco-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+}
+
+.agent-mode-hud[data-orb-visual="disco_ball"] .agent-orb-disco-ball {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.agent-mode-hud[data-orb-visual="disco_ball"]::before {
+  inset: -48px;
+  opacity: 0.62;
+  background: radial-gradient(circle at 30% 18%, rgba(255, 255, 255, 0.24), transparent 28%), radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.12), transparent 68%);
+}
+
+/* Dragging moves the complete HUD as one spherical surface. The previous
+   nested stretch/tilt/filter treatment made the cover and disco canvas detach
+   from the orb boundary, so keep the optical layers stable while the HUD
+   itself follows the pointer. */
+.agent-mode-hud.is-dragging .agent-mode-core,
+.agent-mode-hud.is-dragging .agent-mode-lens,
+.agent-mode-hud.is-dragging .agent-orb-disco-ball {
+  transform: none !important;
+  transition: none;
+  will-change: auto;
+}
+
+.agent-mode-hud.is-dragging .agent-mode-core {
+  animation: none;
+  filter: none;
+}
+
+.agent-mode-hud.is-dragging .agent-mode-cover {
+  /* Keep the same bleed used at rest so the artwork cannot reveal a hard
+     seam while the complete HUD is moved as one surface. */
+  transform: scale(1.015) !important;
+  transition: none;
+  will-change: auto;
+}
+
+.agent-mode-hud.is-dragging .agent-mode-lens {
+  filter: none;
+}
+
+/* Footer toggles use the same glass token as play/previous/next. Their accent
+   is reserved for hover/focus, so disco mode does not leave them neon green. */
+.agent-mode-footer .agent-orb-control {
+  width: 36px;
+  height: 36px;
+  flex-basis: 36px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(5, 5, 5, 0.38);
+  color: var(--text-primary);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.agent-mode-footer .agent-orb-control:hover,
+.agent-mode-footer .agent-orb-control:focus-visible {
+  color: var(--agent-color);
+  border-color: currentColor;
+  background: rgba(5, 5, 5, 0.56);
+  transform: scale(1.06);
+}
+
+@media (hover: none) {
+  .agent-mode-hud[data-track-loaded="true"] .agent-orb-transport {
+    opacity: 0.86;
+    pointer-events: auto;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
 @media (max-width: 1023px) {
   /* Mobile has no social rail; lift the compact pill above the bottom nav and
      keep it centered within the safe viewport. */
@@ -4764,12 +5260,20 @@ html[data-agent-operation="listening"] .agent-mode-core {
     width: min(292px, calc(100vw - 32px));
     transform: translateX(-50%);
   }
+
+  html[data-player-floating="true"] .interaction-helper {
+    bottom: clamp(164px, 24vh, 216px);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .agent-mode-cover,
-  .agent-mode-play-btn {
+  .agent-mode-play-btn,
+  .agent-mode-hud[data-orb-visual="disco_ball"] .agent-mode-core,
+  .agent-orb-disco-ball,
+  .agent-orb-disco-canvas {
     transition-duration: 0.01ms !important;
+    animation: none !important;
   }
 }
 
@@ -4778,6 +5282,10 @@ html[data-agent-operation="listening"] .agent-mode-core {
      the player reads as a separate transport surface on small screens. */
   .global-player-host {
     bottom: max(116px, calc(env(safe-area-inset-bottom, 0px) + 100px));
+  }
+
+  html[data-player-floating="true"] .interaction-helper {
+    bottom: clamp(180px, 28vh, 236px);
   }
 }
 
@@ -4798,10 +5306,11 @@ html[data-agent-operation="listening"] .agent-mode-core {
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.82));
 }
 
-/* The player carries the complete release + track title. Long labels stay
-   quiet at rest and reveal their full line by scrolling left on hover/focus. */
+/* The player carries the complete release + track title. Long labels scroll
+   automatically like a compact car stereo or digital radio display. */
 .player-release-link {
-  text-overflow: ellipsis;
+  min-width: 0;
+  text-overflow: clip;
 }
 
 #player-track-title {
@@ -4813,6 +5322,7 @@ html[data-agent-operation="listening"] .agent-mode-core {
   white-space: nowrap;
 }
 
+.player-release-link.is-title-measuring #player-track-title,
 .player-release-link.is-title-overflowing #player-track-title {
   max-width: none;
   width: max-content;
@@ -4821,13 +5331,13 @@ html[data-agent-operation="listening"] .agent-mode-core {
 }
 
 @keyframes playerTitleMarquee {
-  from { transform: translateX(0); }
-  to { transform: translateX(var(--player-title-marquee-distance, -36px)); }
+  0%, 12% { transform: translateX(0); }
+  88%, 100% { transform: translateX(var(--player-title-marquee-distance, -36px)); }
 }
 
-.player-release-link.is-title-overflowing:hover #player-track-title,
-.player-release-link.is-title-overflowing:focus-within #player-track-title {
-  animation: playerTitleMarquee var(--player-title-marquee-duration, 7s) ease-in-out infinite alternate;
+.player-release-link.is-title-overflowing #player-track-title {
+  animation: playerTitleMarquee var(--player-title-marquee-duration, 7s) linear infinite;
+  animation-delay: 1s;
 }
 
 @media (prefers-reduced-motion: reduce) {
