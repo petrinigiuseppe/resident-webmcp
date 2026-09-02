@@ -619,7 +619,7 @@ async function startCuratorSessionInternal(api, intent = '') {
       diagnostics: 'browser_download'
     },
     ...api.status(),
-    next_step: 'Use search_catalog for exact metadata search or dig_by_descriptor for Song DNA metadata matching.'
+    next_step: 'Use search_catalog for exact metadata search or dig_by_descriptor for Song DNA metadata matching. To add a selected release to My Crate, call add_to_crate with its record_id.'
   };
 }
 
@@ -1761,7 +1761,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   await registerTool(modelContext, {
     name: 'manage_crate',
     title: 'Add or remove a record from My Crate',
-    description: 'Changes the local My Crate using the existing Add to Crate control. This is reversible, does not call checkout, and does not purchase anything.',
+    description: 'Adds or removes a release from the local My Crate using the existing Add to Crate control. Use add_to_crate for an explicit add request. This is reversible, does not call checkout, and does not purchase anything.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1780,6 +1780,30 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
         const item = findItem(input.record_id);
         if (!item) return resultError('RECORD_NOT_FOUND', 'The requested record is not in the loaded catalog.');
         return api.manageCrate(getRecordId(item), input.action);
+      });
+    }
+  });
+
+  await registerTool(modelContext, {
+    name: 'add_to_crate',
+    title: 'Add a release to My Crate',
+    description: 'Adds the requested release to My Crate. Use this for requests such as "add it to my crate", "add this release", or "save it in My Crate". This only changes the local reversible crate and never starts checkout or purchases anything.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        record_id: { type: 'string', minLength: 1, maxLength: 160 }
+      },
+      required: ['record_id'],
+      additionalProperties: false
+    },
+    annotations: uiMutation,
+    async execute(input = {}) {
+      return withAgentActivity('Adding to My Crate', async () => {
+        const recordId = trimText(input.record_id, 160);
+        if (!recordId) return resultError('INVALID_RECORD_ID', 'record_id is required.');
+        const item = findItem(recordId);
+        if (!item) return resultError('RECORD_NOT_FOUND', 'The requested release is not in the loaded catalog.');
+        return api.manageCrate(getRecordId(item), 'add');
       });
     }
   });
@@ -1909,7 +1933,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   toolRegistrationComplete = true;
   document.documentElement.dataset.webmcp = 'ready';
   dispatch('seph-webmcp-ready', {
-    tool_count: 27,
+    tool_count: 28,
     model_context_source: modelContextSource,
     tools: [
       'start_curator_session',
@@ -1933,6 +1957,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
       'set_orb_visual',
       'set_theme',
       'manage_crate',
+      'add_to_crate',
       'return_to_main_crate',
       'prepare_checkout',
       'start_checkout',
