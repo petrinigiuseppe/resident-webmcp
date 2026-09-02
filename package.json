@@ -21,6 +21,7 @@
     "site:demo:dry-run": "npx wrangler deploy --config wrangler.staging.toml --dry-run",
     "site:demo:song-dna-check": "node scripts/song_dna_check.mjs https://demo.sephmartin.com",
     "site:demo:player-continuity-check": "node scripts/player_continuity_browser_check.cjs https://demo.sephmartin.com",
+    "site:demo:add-to-crate-check": "node scripts/add_to_crate_browser_check.cjs https://demo.sephmartin.com",
     "site:demo:autoplay-check": "node scripts/player_autoplay_browser_check.cjs https://demo.sephmartin.com",
     "site:demo:keyboard-diagnostics-check": "node scripts/player_keyboard_diagnostics_browser_check.cjs https://demo.sephmartin.com",
     "site:demo:catalog-navigation-check": "node scripts/catalog_navigation_browser_check.cjs https://demo.sephmartin.com",

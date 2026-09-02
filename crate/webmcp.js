@@ -15,8 +15,8 @@ import {
   getAgentStatusText,
   isPassiveAgentStatus,
   resolveAgentOperation
-} from './agent-state.js?v=20260831-webmcp-m70';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m70';
+} from './agent-state.js?v=20260831-webmcp-m71';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m71';
 
 const MAX_TOOL_OUTPUT_RECORDS = 12;
 const ACTIVE_STATES = new Set(['loading', 'active', 'busy', 'standby']);
@@ -619,7 +619,7 @@ async function startCuratorSessionInternal(api, intent = '') {
       diagnostics: 'browser_download'
     },
     ...api.status(),
-    next_step: 'Use search_catalog for exact metadata search or dig_by_descriptor for Song DNA metadata matching. To add a selected release to My Crate, call add_to_crate with its record_id.'
+    next_step: 'Use search_catalog for exact metadata search or dig_by_descriptor for Song DNA metadata matching. To add a selected release to My Crate, call add_to_crate with its record_id, or omit record_id when the current release selection is unambiguous.'
   };
 }
 
@@ -1801,20 +1801,22 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   await registerTool(modelContext, {
     name: 'add_to_crate',
     title: 'Add a release to My Crate',
-    description: 'Adds the requested release to My Crate. Use this for requests such as "add it to my crate", "add this release", or "save it in My Crate". This only changes the local reversible crate and never starts checkout or purchases anything.',
+    description: 'Adds the requested release to My Crate. Use this for requests such as "add it to my crate", "add this release", or "save it in My Crate". When the user says "it" or "this" after a release was selected or inspected, record_id may be omitted and the current open or active release is used. This only changes the local reversible crate and never starts checkout or purchases anything.',
     inputSchema: {
       type: 'object',
       properties: {
         record_id: { type: 'string', minLength: 1, maxLength: 160 }
       },
-      required: ['record_id'],
       additionalProperties: false
     },
     annotations: uiMutation,
     async execute(input = {}) {
       return withAgentActivity('Adding to My Crate', async () => {
-        const recordId = trimText(input.record_id, 160);
-        if (!recordId) return resultError('INVALID_RECORD_ID', 'record_id is required.');
+        const requestedRecordId = trimText(input.record_id, 160);
+        const uiContext = api.getUiContext?.();
+        const contextualRecordId = trimText(uiContext?.open_record_id || uiContext?.active_record_id, 160);
+        const recordId = requestedRecordId || contextualRecordId;
+        if (!recordId) return resultError('RECORD_REQUIRED', 'Select or inspect a release before asking to add it to My Crate.');
         const item = findItem(recordId);
         if (!item) return resultError('RECORD_NOT_FOUND', 'The requested release is not in the loaded catalog.');
         return api.manageCrate(getRecordId(item), 'add');
