@@ -9,14 +9,14 @@
  * Three.js internals or checkout endpoints directly.
  */
 
-import { buildCollectionStats, buildMusicDNA, getRecordId, scoreCatalog } from './song-dna.js';
+import { buildCollectionStats, buildMusicDNA, getRecordId, scoreCatalog } from './song-dna.js?v=20260831-webmcp-m72';
 import {
   getAgentPresenceText,
   getAgentStatusText,
   isPassiveAgentStatus,
   resolveAgentOperation
-} from './agent-state.js?v=20260831-webmcp-m71';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m71';
+} from './agent-state.js?v=20260831-webmcp-m72';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m72';
 
 const MAX_TOOL_OUTPUT_RECORDS = 12;
 const ACTIVE_STATES = new Set(['loading', 'active', 'busy', 'standby']);

@@ -201,6 +201,13 @@ function asText(value) {
     .trim();
 }
 
+function normalizeDescriptorText(value) {
+  return asText(value)
+    // Producers use all three spellings interchangeably. Keep the alias in
+    // descriptor parsing only so catalog/search text remains untouched.
+    .replace(/\blate[- ]?night\b/g, 'late night');
+}
+
 function unique(values) {
   return [...new Set(values.filter(Boolean))];
 }
@@ -570,7 +577,7 @@ function isNegatedTerm(normalized, term) {
 }
 
 function getDescriptorSignals(descriptor) {
-  const normalized = asText(descriptor);
+  const normalized = normalizeDescriptorText(descriptor);
   const groups = [];
   const excludedGroups = [];
   const reservedTerms = [];
