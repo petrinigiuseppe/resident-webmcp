@@ -6,7 +6,7 @@ for every file, asset, database, page, or business operation in this project.
 ## Covered WebMCP software
 
 The Mozilla Public License 2.0 applies to the original WebMCP challenge
-software authored for the Synesthetic Curator beta, including:
+software authored for the Resident WebMCP beta, including:
 
 - `crate/webmcp.js`
 - `crate/song-dna.js`

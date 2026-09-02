@@ -1,6 +1,6 @@
 /* --- 3D Vinyl Crate digging (Beta) crate.js --- */
 import * as THREE from './vendor/three.module.js';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m72';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m73';
 
 diagnostics.record('runtime', 'crate_module_loaded', { build_version: WEBMCP_BUILD_VERSION });
 
@@ -2227,7 +2227,9 @@ function completeDemoCheckoutFromAgent() {
       human_confirmation_required: false,
       checkout_surface: 'demo_simulator',
       order_id: document.getElementById('demo-checkout-order-id')?.textContent?.trim() || null,
-      next_step: 'Call download_release to continue; it returns to My Crate automatically and opens the copyright-safe demo boundary.'
+      demo_complete: false,
+      download_requested: false,
+      next_step: 'Purchase Complete is shown. Wait for a separate, explicit user request to finish or download the demo; do not call download_release automatically.'
     };
   }
 
@@ -2283,7 +2285,9 @@ function completeDemoCheckoutFromAgent() {
     record_ids: recordIds,
     cart_count: recordIds.length,
     total_cents: totalCents,
-    next_step: 'Call download_release to continue; it returns to My Crate automatically and opens the copyright-safe demo boundary.'
+    demo_complete: false,
+    download_requested: false,
+    next_step: 'Purchase Complete is shown. Wait for a separate, explicit user request to finish or download the demo; do not call download_release automatically.'
   };
 }
 

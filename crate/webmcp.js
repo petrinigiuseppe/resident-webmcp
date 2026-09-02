@@ -1,5 +1,5 @@
 /*
- * WebMCP adapter for the Synesthetic Curator demo.
+ * WebMCP adapter for the Resident demo.
  * SPDX-License-Identifier: MPL-2.0
  * Copyright (c) 2026 Giuseppe Petrini / Seph Martin
  *
@@ -9,14 +9,14 @@
  * Three.js internals or checkout endpoints directly.
  */
 
-import { buildCollectionStats, buildMusicDNA, getRecordId, scoreCatalog } from './song-dna.js?v=20260831-webmcp-m72';
+import { buildCollectionStats, buildMusicDNA, getRecordId, scoreCatalog } from './song-dna.js?v=20260831-webmcp-m73';
 import {
   getAgentPresenceText,
   getAgentStatusText,
   isPassiveAgentStatus,
   resolveAgentOperation
-} from './agent-state.js?v=20260831-webmcp-m72';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m72';
+} from './agent-state.js?v=20260831-webmcp-m73';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m73';
 
 const MAX_TOOL_OUTPUT_RECORDS = 12;
 const ACTIVE_STATES = new Set(['loading', 'active', 'busy', 'standby']);
@@ -1249,7 +1249,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
 
   await registerTool(modelContext, {
     name: 'start_curator_session',
-    title: 'Start Synesthetic Curator session',
+    title: 'Start Resident session',
     description: 'Call this first for a new request. It is safe to call again after a resumed command: it reactivates the visible Agent Mode HUD and confirms that the page crate tools are ready. It does not purchase anything.',
     inputSchema: {
       type: 'object',
@@ -1882,7 +1882,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   await registerTool(modelContext, {
     name: 'complete_purchase',
     title: 'Complete purchase / Buy now in the demo checkout',
-    description: 'Completes the visible no-payment demo checkout only after the user explicitly confirms the final action with "complete purchase" or "buy now". Pass confirmed=true only for that explicit confirmation; a missing or false value leaves the checkout at review. This is the final Buy Now / Complete Purchase action for the hackathon demo; it records a simulated order, shows Purchase Complete, and never contacts Lemon or delivers the original audio. Outside the demo simulator it refuses automation and returns the human checkout boundary.',
+    description: 'Completes the visible no-payment demo checkout only after the user explicitly confirms the final action with "complete purchase" or "buy now". Pass confirmed=true only for that explicit confirmation; a missing or false value leaves the checkout at review. This is the final Buy Now / Complete Purchase action for the hackathon demo; it records a simulated order, shows Purchase Complete, and never contacts Lemon or delivers the original audio. After success, stop at Purchase Complete and wait for a separate explicit user request before calling download_release. Outside the demo simulator it refuses automation and returns the human checkout boundary.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1921,7 +1921,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   await registerTool(modelContext, {
     name: 'download_release',
     title: 'Reach the demo download boundary',
-    description: 'Completes the final download step for a purchased release in the on-site hackathon demo and opens the compact Demo Complete message. The preview intentionally provides no audio file, so this tool never downloads or claims to deliver the original music. Omit record_id to use the currently selected purchased release in My Crate.',
+    description: 'Completes the final download step for a purchased release in the on-site hackathon demo and opens the compact Demo Complete message. Call this only after a later explicit user request to finish or download; do not chain it automatically after complete_purchase. The preview intentionally provides no audio file, so this tool never downloads or claims to deliver the original music. Omit record_id to use the currently selected purchased release in My Crate.',
     inputSchema: {
       type: 'object',
       properties: { record_id: { type: 'string', maxLength: 160 } },
@@ -1937,7 +1937,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
 
   await registerTool(modelContext, {
     name: 'end_curator_session',
-    title: 'End Synesthetic Curator session',
+    title: 'End Resident session',
     description: 'Returns the page to Human Mode through a soft handoff and clears agent-focused record styling. It does not alter My Crate.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: uiMutation,
