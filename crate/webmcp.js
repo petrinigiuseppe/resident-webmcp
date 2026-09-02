@@ -15,8 +15,8 @@ import {
   getAgentStatusText,
   isPassiveAgentStatus,
   resolveAgentOperation
-} from './agent-state.js?v=20260831-webmcp-m68';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m68';
+} from './agent-state.js?v=20260831-webmcp-m70';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m70';
 
 const MAX_TOOL_OUTPUT_RECORDS = 12;
 const ACTIVE_STATES = new Set(['loading', 'active', 'busy', 'standby']);
@@ -1585,12 +1585,26 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   await registerTool(modelContext, {
     name: 'pause_track',
     title: 'Pause the preview player',
-    description: 'Pauses the currently loaded preview and preserves its position for a later play_track call. It never changes My Crate or checkout.',
+    description: 'Pauses or stops the currently loaded preview and preserves its position for a later play_track call. Use this for pause, stop, stop it, or stop the song. It never changes My Crate or checkout.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: uiMutation,
     async execute() {
       return withAgentActivity('Pausing the selected preview', async () => {
         const player = api.pauseTrack?.({ source: 'agent' });
+        return player || resultError('PLAYER_UNAVAILABLE', 'The preview player controls are not available.');
+      });
+    }
+  });
+
+  await registerTool(modelContext, {
+    name: 'stop_track',
+    title: 'Stop the preview player',
+    description: 'Stops the currently loaded preview by pausing it and preserving its position. Use this for stop, stop it, stop the song, halt playback, or end the preview. It never changes My Crate or checkout.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    annotations: uiMutation,
+    async execute() {
+      return withAgentActivity('Stopping the selected preview', async () => {
+        const player = api.pauseTrack?.({ source: 'agent_stop' });
         return player || resultError('PLAYER_UNAVAILABLE', 'The preview player controls are not available.');
       });
     }
@@ -1739,8 +1753,8 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
 
   await registerTool(modelContext, {
     name: 'set_theme',
-    title: 'Set the site color theme',
-    description: 'Sets the site presentation theme to light, dark, or system. The preference is persisted locally and changes only the visual theme; it does not affect playback, the crate, or checkout.',
+    title: 'Set the website color theme',
+    description: 'Sets the website color theme (not the browser or agent UI mode) to light, dark, or system. The preference is persisted locally and changes only the visual theme; it does not affect playback, the crate, or checkout.',
     inputSchema: {
       type: 'object',
       properties: { theme: { type: 'string', enum: ['light', 'dark', 'system'] } },
@@ -1933,7 +1947,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   toolRegistrationComplete = true;
   document.documentElement.dataset.webmcp = 'ready';
   dispatch('seph-webmcp-ready', {
-    tool_count: 28,
+    tool_count: 29,
     model_context_source: modelContextSource,
     tools: [
       'start_curator_session',
@@ -1947,6 +1961,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
       'get_player_state',
       'play_track',
       'pause_track',
+      'stop_track',
       'previous_track',
       'next_track',
       'previous_release',

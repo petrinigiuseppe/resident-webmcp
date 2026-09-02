@@ -1,6 +1,6 @@
 /* --- 3D Vinyl Crate digging (Beta) crate.js --- */
 import * as THREE from './vendor/three.module.js';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m68';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m70';
 
 diagnostics.record('runtime', 'crate_module_loaded', { build_version: WEBMCP_BUILD_VERSION });
 
@@ -310,7 +310,9 @@ const AGENT_NAVIGATION_MIX = {
   agent: 0.126
 };
 
-const THEME_STORAGE_KEY = 'sephmartin.theme';
+// Ignore the pre-beta theme lock once: the device preference is the default
+// unless the current WebMCP surface explicitly chooses a theme again.
+const THEME_STORAGE_KEY = 'sephmartin.theme.v2';
 const THEME_PREFERENCES = new Set(['light', 'dark', 'system']);
 let activeThemePreference = 'system';
 
@@ -407,7 +409,23 @@ function initializeTheme() {
   setTheme(preference, { persist: false, source: 'initial', record: false });
 }
 
+function installSystemThemeListener() {
+  try {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: light)');
+    const handleChange = () => {
+      if (getThemePreference() === 'system') {
+        setTheme('system', { persist: false, source: 'system', record: true });
+      }
+    };
+    if (typeof mediaQuery.addEventListener === 'function') mediaQuery.addEventListener('change', handleChange);
+    else if (typeof mediaQuery.addListener === 'function') mediaQuery.addListener(handleChange);
+  } catch (error) {
+    // A missing media-query API must not prevent the site from loading.
+  }
+}
+
 initializeTheme();
+installSystemThemeListener();
 
 // Initialize Application
 document.addEventListener('DOMContentLoaded', () => {
@@ -4230,23 +4248,6 @@ function initThree() {
 
   // Sync lighting and background with prefers-color-scheme
   syncThemeWithBrowser();
-
-  // Listen for prefers-color-scheme media changes
-  try {
-    window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
-      if (getThemePreference() === 'system') {
-        setTheme('system', { persist: false, source: 'system', record: true });
-      }
-    });
-  } catch (e) {
-    try {
-      window.matchMedia('(prefers-color-scheme: light)').addListener(() => {
-        if (getThemePreference() === 'system') {
-          setTheme('system', { persist: false, source: 'system', record: true });
-        }
-      });
-    } catch (err) {}
-  }
 
   // Responsive resizing
   window.addEventListener('resize', onWindowResize);
