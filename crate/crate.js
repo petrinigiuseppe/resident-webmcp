@@ -276,7 +276,7 @@ let dragAccumulator = 0;
 const DRAG_THRESHOLD = 50; // pixels to flip a record (for mousewheel only)
 
 // Audio Player state
-const PREVIEW_AUDIO_VOLUME = 0.68;
+const PREVIEW_AUDIO_VOLUME = 0.34;
 let audio = new Audio();
 audio.volume = PREVIEW_AUDIO_VOLUME;
 let currentPlayingTrackId = null;
