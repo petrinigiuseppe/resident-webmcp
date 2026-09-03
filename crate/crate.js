@@ -1,6 +1,6 @@
 /* --- 3D Vinyl Crate digging (Beta) crate.js --- */
 import * as THREE from './vendor/three.module.js';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m75';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m76';
 
 diagnostics.record('runtime', 'crate_module_loaded', { build_version: WEBMCP_BUILD_VERSION });
 
@@ -99,10 +99,11 @@ let demoCheckoutStep = 'checkout';
 let demoCheckoutLastFocus = null;
 let demoCheckoutRequestedByAgent = false;
 let demoCheckoutAutoReturnTimer = null;
+let demoCheckoutAutoCloseTimer = null;
 let demoCompletionLastFocus = null;
 let demoCompletionAutoCloseTimer = null;
 const DEMO_END_MESSAGE = 'YOU REACHED THE END OF THIS WORLD — WELL PLAYED :)';
-const DEMO_COMPLETION_AUTO_CLOSE_MS = 8000;
+const DEMO_MODAL_AUTO_CLOSE_MS = 8000;
 const demoCompletedRecordIds = new Set();
 
 function isLemonOverlayEnabled() {
@@ -2099,6 +2100,10 @@ function openDemoCheckoutModal(items) {
 function closeDemoCheckoutModal({ reason = 'dismissed' } = {}) {
   const modal = document.getElementById('demo-checkout-modal');
   if (!modal || modal.classList.contains('hidden')) return false;
+  if (demoCheckoutAutoCloseTimer) {
+    window.clearTimeout(demoCheckoutAutoCloseTimer);
+    demoCheckoutAutoCloseTimer = null;
+  }
   if (demoCheckoutAutoReturnTimer) {
     window.clearTimeout(demoCheckoutAutoReturnTimer);
     demoCheckoutAutoReturnTimer = null;
@@ -2167,6 +2172,17 @@ function completeDemoCheckout() {
   updateUIControlsState();
   playPurchaseConfirmationSound();
   const confettiCount = triggerDemoConfetti('demo-checkout-confetti-layer');
+  demoCheckoutAutoCloseTimer = window.setTimeout(() => {
+    demoCheckoutAutoCloseTimer = null;
+    const firstRecordId = demoCheckoutSelection[0]
+      ? getCrateRecordId(demoCheckoutSelection[0])
+      : '';
+    if (firstRecordId) {
+      openDemoMyCrateAfterPurchase(firstRecordId, { reason: 'auto_close' });
+    } else {
+      closeDemoCheckoutModal({ reason: 'auto_close' });
+    }
+  }, DEMO_MODAL_AUTO_CLOSE_MS);
   const source = document.getElementById('demo-checkout-modal')?.dataset.source || 'human';
   window.dispatchEvent(new CustomEvent('seph-demo-checkout-completed', {
     detail: {
@@ -2291,11 +2307,11 @@ function completeDemoCheckoutFromAgent() {
   };
 }
 
-function openDemoMyCrateAfterPurchase(recordId = '') {
+function openDemoMyCrateAfterPurchase(recordId = '', { reason = 'opened_my_crate' } = {}) {
   const firstRecordId = recordId || (demoCheckoutSelection[0]
     ? getCrateRecordId(demoCheckoutSelection[0])
     : '');
-  closeDemoCheckoutModal({ reason: 'opened_my_crate' });
+  closeDemoCheckoutModal({ reason });
   const view = showMyCrateView();
   if (!view?.ok || !firstRecordId) return view;
 
@@ -2393,7 +2409,7 @@ function openDemoCompletionModal({ source = 'human', recordId = '', orderId = ''
   demoCompletionAutoCloseTimer = window.setTimeout(() => {
     demoCompletionAutoCloseTimer = null;
     closeDemoCompletionModal({ reason: 'auto_close' });
-  }, DEMO_COMPLETION_AUTO_CLOSE_MS);
+  }, DEMO_MODAL_AUTO_CLOSE_MS);
   return true;
 }
 
