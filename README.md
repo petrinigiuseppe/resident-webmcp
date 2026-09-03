@@ -17,8 +17,9 @@ page state: `AGENT MODE`, `THINKING`, `DIGGING`, `LISTENING`, `RETURNING` or
 The human and agent can search the catalog, rank releases using conservative
 metadata-only Song DNA, focus and inspect records, control preview playback,
 move through releases, add or remove items from the reversible local crate and
-prepare checkout together. Human pointer, keyboard and touch input can take
-control immediately. The purchase boundary stays explicit: the demo checkout
+prepare checkout together. Direct human interaction with the shared crate
+surface immediately takes priority and returns control to Human Mode. The
+purchase boundary stays explicit: the demo checkout
 is a no-payment simulator, and the final audio download is intentionally not
 available.
 
@@ -71,6 +72,7 @@ before saying that audio started.
 
 ```sh
 npm run check:syntax
+npm run check:webmcp:contract
 npm run check:live
 ```
 
