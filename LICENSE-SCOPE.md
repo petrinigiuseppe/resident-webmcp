@@ -10,8 +10,9 @@ software authored for the Resident WebMCP beta, including:
 
 - `crate/webmcp.js`
 - `crate/song-dna.js`
-- `scripts/webmcp_surface_check.mjs`
-- the generated browser copies of those modules under `dist/crate/`
+- `crate/agent-state.js`
+- `crate/webmcp-debug.js`
+- `scripts/check_webmcp_contract.mjs`
 
 The SPDX notices in those files identify the covered source form. Modifications
 to covered files must preserve the MPL notices and the source-availability
