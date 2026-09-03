@@ -9,14 +9,14 @@
  * Three.js internals or checkout endpoints directly.
  */
 
-import { buildCollectionStats, buildMusicDNA, getRecordId, scoreCatalog } from './song-dna.js?v=20260831-webmcp-m74';
+import { buildCollectionStats, buildMusicDNA, getRecordId, scoreCatalog } from './song-dna.js?v=20260831-webmcp-m75';
 import {
   getAgentPresenceText,
   getAgentStatusText,
   isPassiveAgentStatus,
   resolveAgentOperation
-} from './agent-state.js?v=20260831-webmcp-m74';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m74';
+} from './agent-state.js?v=20260831-webmcp-m75';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m75';
 
 const MAX_TOOL_OUTPUT_RECORDS = 12;
 const ACTIVE_STATES = new Set(['loading', 'active', 'busy', 'standby']);
@@ -1548,7 +1548,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   await registerTool(modelContext, {
     name: 'get_player_state',
     title: 'Read preview player state',
-    description: 'Reads the visible preview player transport: current release and track, play/pause status, current position, duration, previous/next availability, volume and site audio state. It also reactivates Agent Mode when a resumed command needs it. It does not claim BPM, key or other audio analysis.',
+    description: 'Reads the visible preview player transport: current release and track, play/pause status, current position, duration, previous/next availability, volume and site audio state. Treat is_playing as the source of truth: a tool call alone does not prove audible playback. It also reactivates Agent Mode when a resumed command needs it. It does not claim BPM, key or other audio analysis.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: uiMutation,
     async execute() {
@@ -1562,7 +1562,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   await registerTool(modelContext, {
     name: 'play_track',
     title: 'Play a catalog preview',
-    description: 'Loads and plays one catalog track preview in the visible player. Use inspect_record first to obtain track_id and record_id; omit track_id only to resume the already loaded track. Browser autoplay policy may require a user gesture; if blocked, relay the returned user_message and next_step instead of claiming playback started. This never purchases anything.',
+    description: 'Loads and plays one catalog track preview in the visible player. Use inspect_record first to obtain track_id and record_id; omit track_id only to resume the already loaded track. Browser autoplay policy is strict: an agent/WebMCP call is not a trusted user gesture. If the user has not already clicked, tapped or pressed a key on this page, audio may be blocked and the result will be PLAYBACK_BLOCKED with requires_user_gesture:true, user_message and next_step. Relay those fields, ask the user to interact with the visible page or player, then retry; never claim playback started until get_player_state reports is_playing:true. This never purchases anything.',
     inputSchema: {
       type: 'object',
       properties: {
