@@ -9,7 +9,7 @@
  * routine transport or UI telemetry.
  */
 
-export const WEBMCP_BUILD_VERSION = '20260831-webmcp-m73';
+export const WEBMCP_BUILD_VERSION = '20260831-webmcp-m74';
 
 const DIAGNOSTICS_SCHEMA = 'sephmartin.webmcp.diagnostics.v1';
 const STORAGE_KEY = 'seph.webmcp.diagnostics.v1';

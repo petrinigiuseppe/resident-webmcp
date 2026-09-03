@@ -9,14 +9,14 @@
  * Three.js internals or checkout endpoints directly.
  */
 
-import { buildCollectionStats, buildMusicDNA, getRecordId, scoreCatalog } from './song-dna.js?v=20260831-webmcp-m73';
+import { buildCollectionStats, buildMusicDNA, getRecordId, scoreCatalog } from './song-dna.js?v=20260831-webmcp-m74';
 import {
   getAgentPresenceText,
   getAgentStatusText,
   isPassiveAgentStatus,
   resolveAgentOperation
-} from './agent-state.js?v=20260831-webmcp-m73';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m73';
+} from './agent-state.js?v=20260831-webmcp-m74';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m74';
 
 const MAX_TOOL_OUTPUT_RECORDS = 12;
 const ACTIVE_STATES = new Set(['loading', 'active', 'busy', 'standby']);
@@ -1859,7 +1859,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   await registerTool(modelContext, {
     name: 'start_checkout',
     title: 'Start Lemon checkout for My Crate',
-    description: 'For an explicit request such as "buy my crate", activates the visible checkout control. On the hackathon demo it opens the short on-site simulator with a pre-signed-in demo profile and stops at review; wait for an explicit confirmation such as "complete purchase" or "buy now" before calling complete_purchase. Otherwise it opens the Lemon overlay or redirects this tab to Lemon, where the final purchase remains human-controlled.',
+    description: 'For an explicit request such as "buy my crate", activates the visible checkout control. On the hackathon demo it opens the short on-site simulator with a pre-signed-in demo profile and stops at review; wait for an explicit confirmation such as "buy now", "buy it", "confirm purchase", "complete purchase", or "do it" in response to the checkout prompt before calling complete_purchase. Otherwise it opens the Lemon overlay or redirects this tab to Lemon, where the final purchase remains human-controlled.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: uiMutation,
     async execute() {
@@ -1882,13 +1882,13 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   await registerTool(modelContext, {
     name: 'complete_purchase',
     title: 'Complete purchase / Buy now in the demo checkout',
-    description: 'Completes the visible no-payment demo checkout only after the user explicitly confirms the final action with "complete purchase" or "buy now". Pass confirmed=true only for that explicit confirmation; a missing or false value leaves the checkout at review. This is the final Buy Now / Complete Purchase action for the hackathon demo; it records a simulated order, shows Purchase Complete, and never contacts Lemon or delivers the original audio. After success, stop at Purchase Complete and wait for a separate explicit user request before calling download_release. Outside the demo simulator it refuses automation and returns the human checkout boundary.',
+    description: 'When the demo checkout is open, completes the visible no-payment purchase only after the user explicitly confirms the final action. Treat "buy now", "buy it", "confirm purchase", "complete purchase", or "do it" in response to the checkout prompt as explicit confirmation, then call this tool with confirmed=true. Never infer confirmation from a general "buy" request before checkout review is open; a missing or false value leaves the checkout at review. This is the final Buy Now / Complete Purchase action for the hackathon demo; it records a simulated order, shows Purchase Complete, and never contacts Lemon or delivers the original audio. After success, stop at Purchase Complete and wait for a separate explicit user request before calling download_release. Outside the demo simulator it refuses automation and returns the human checkout boundary.',
     inputSchema: {
       type: 'object',
       properties: {
         confirmed: {
           type: 'boolean',
-          description: 'Required explicit confirmation from the user for the final purchase action.'
+          description: 'Required explicit confirmation from the user for the final purchase action. Set true only after the visible checkout review and an explicit phrase such as "buy now", "buy it", "confirm purchase", "complete purchase", or "do it" in response to the checkout prompt.'
         }
       },
       required: ['confirmed'],
@@ -1909,7 +1909,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
               code: 'EXPLICIT_PURCHASE_CONFIRMATION_REQUIRED',
               message: 'The checkout is waiting for the user to explicitly confirm the final purchase action.'
             },
-            next_step: 'Wait for an explicit "complete purchase" or "buy now" confirmation, then call complete_purchase with confirmed=true.'
+            next_step: 'Wait for an explicit "buy now", "buy it", "confirm purchase", "complete purchase", or "do it" confirmation, then call complete_purchase with confirmed=true.'
           };
         }
         return api.completePurchase?.()
