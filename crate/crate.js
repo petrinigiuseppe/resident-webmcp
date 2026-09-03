@@ -1,6 +1,6 @@
 /* --- 3D Vinyl Crate digging (Beta) crate.js --- */
 import * as THREE from './vendor/three.module.js';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m76';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m77';
 
 diagnostics.record('runtime', 'crate_module_loaded', { build_version: WEBMCP_BUILD_VERSION });
 
@@ -2749,7 +2749,7 @@ function startCheckoutFromAgent() {
       purchase_started: false,
       human_confirmation_required: true,
       checkout_surface: 'demo_simulator',
-      next_step: 'Review the visible demo checkout and wait for explicit confirmation; then call complete_purchase with confirmed=true.'
+      next_step: 'Review the visible demo checkout and wait for an explicit confirmation reply such as "buy now", "confirm purchase", "confermo", "compra ora", "procedi", or contextual "vai"; then call complete_purchase with confirmed=true.'
     };
   }
   demoCheckoutRequestedByAgent = false;
@@ -2767,7 +2767,7 @@ function startCheckoutFromAgent() {
       ? 'demo_simulator'
       : overlayActive ? 'lemon_overlay' : 'lemon_redirect',
     next_step: demoSimulatorActive
-      ? 'Review the visible demo checkout and wait for explicit confirmation; then call complete_purchase with confirmed=true.'
+      ? 'Review the visible demo checkout and wait for an explicit confirmation reply such as "buy now", "confirm purchase", "confermo", "compra ora", "procedi", or contextual "vai"; then call complete_purchase with confirmed=true.'
       : overlayActive
       ? 'Complete the purchase in the Lemon checkout overlay.'
       : 'Complete the purchase on the Lemon checkout page.'

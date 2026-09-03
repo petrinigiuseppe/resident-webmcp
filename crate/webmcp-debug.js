@@ -9,7 +9,7 @@
  * routine transport or UI telemetry.
  */
 
-export const WEBMCP_BUILD_VERSION = '20260831-webmcp-m76';
+export const WEBMCP_BUILD_VERSION = '20260831-webmcp-m77';
 
 const DIAGNOSTICS_SCHEMA = 'sephmartin.webmcp.diagnostics.v1';
 const STORAGE_KEY = 'seph.webmcp.diagnostics.v1';
@@ -358,7 +358,7 @@ function download() {
     const anchor = document.createElement('a');
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     anchor.href = url;
-    anchor.download = `sephmartin-webmcp-${WEBMCP_BUILD_VERSION}-${stamp}.json`;
+    anchor.download = `sephmartin-webmcp-diagnostic-log-${WEBMCP_BUILD_VERSION}-${stamp}.json`;
     anchor.rel = 'noopener';
     anchor.style.display = 'none';
     document.body?.appendChild(anchor);

@@ -9,14 +9,14 @@
  * Three.js internals or checkout endpoints directly.
  */
 
-import { buildCollectionStats, buildMusicDNA, getRecordId, scoreCatalog } from './song-dna.js?v=20260831-webmcp-m76';
+import { buildCollectionStats, buildMusicDNA, getRecordId, scoreCatalog } from './song-dna.js?v=20260831-webmcp-m77';
 import {
   getAgentPresenceText,
   getAgentStatusText,
   isPassiveAgentStatus,
   resolveAgentOperation
-} from './agent-state.js?v=20260831-webmcp-m76';
-import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m76';
+} from './agent-state.js?v=20260831-webmcp-m77';
+import { diagnostics, WEBMCP_BUILD_VERSION } from './webmcp-debug.js?v=20260831-webmcp-m77';
 
 const MAX_TOOL_OUTPUT_RECORDS = 12;
 const ACTIVE_STATES = new Set(['loading', 'active', 'busy', 'standby']);
@@ -1859,7 +1859,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   await registerTool(modelContext, {
     name: 'start_checkout',
     title: 'Start Lemon checkout for My Crate',
-    description: 'For an explicit request such as "buy my crate", activates the visible checkout control. On the hackathon demo it opens the short on-site simulator with a pre-signed-in demo profile and stops at review; wait for an explicit confirmation such as "buy now", "buy it", "confirm purchase", "complete purchase", or "do it" in response to the checkout prompt before calling complete_purchase. Otherwise it opens the Lemon overlay or redirects this tab to Lemon, where the final purchase remains human-controlled.',
+    description: 'For an explicit request such as "buy my crate", activates the visible checkout control. On the hackathon demo it opens the short on-site simulator with a pre-signed-in demo profile and stops at review. After the checkout prompt, wait for an explicit confirmation before calling complete_purchase: English examples are "buy now", "buy it", "confirm purchase", "complete purchase", or "do it"; Italian examples are "confermo", "confermo l\'acquisto", "compra ora", "procedi", or "vai" when clearly replying to the open checkout. Never treat a general "compra" or "buy" request before review as final confirmation. Otherwise it opens the Lemon overlay or redirects this tab to Lemon, where the final purchase remains human-controlled.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: uiMutation,
     async execute() {
@@ -1882,13 +1882,13 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
   await registerTool(modelContext, {
     name: 'complete_purchase',
     title: 'Complete purchase / Buy now in the demo checkout',
-    description: 'When the demo checkout is open, completes the visible no-payment purchase only after the user explicitly confirms the final action. Treat "buy now", "buy it", "confirm purchase", "complete purchase", or "do it" in response to the checkout prompt as explicit confirmation, then call this tool with confirmed=true. Never infer confirmation from a general "buy" request before checkout review is open; a missing or false value leaves the checkout at review. This is the final Buy Now / Complete Purchase action for the hackathon demo; it records a simulated order, shows Purchase Complete, and never contacts Lemon or delivers the original audio. After success, stop at Purchase Complete and wait for a separate explicit user request before calling download_release. Outside the demo simulator it refuses automation and returns the human checkout boundary.',
+    description: 'When the demo checkout is open, completes the visible no-payment purchase only after the user explicitly confirms the final action. Treat these replies to the open checkout prompt as explicit confirmation: English "buy now", "buy it", "confirm purchase", "complete purchase", or "do it"; Italian "confermo", "confermo l\'acquisto", "compra ora", "procedi", or "vai". Then call this tool with confirmed=true. Never infer confirmation from a general "compra" or "buy" request before checkout review is open; a missing or false value leaves the checkout at review. This is the final Buy Now / Complete Purchase action for the hackathon demo; it records a simulated order, shows Purchase Complete, and never contacts Lemon or delivers the original audio. After success, stop at Purchase Complete and wait for a separate explicit user request before calling download_release. Outside the demo simulator it refuses automation and returns the human checkout boundary.',
     inputSchema: {
       type: 'object',
       properties: {
         confirmed: {
           type: 'boolean',
-          description: 'Required explicit confirmation from the user for the final purchase action. Set true only after the visible checkout review and an explicit phrase such as "buy now", "buy it", "confirm purchase", "complete purchase", or "do it" in response to the checkout prompt.'
+          description: 'Required explicit confirmation from the user for the final purchase action. Set true only after the visible checkout review and an explicit reply to the open checkout prompt, such as English "buy now", "buy it", "confirm purchase", "complete purchase", or "do it", or Italian "confermo", "confermo l\'acquisto", "compra ora", "procedi", or "vai".'
         }
       },
       required: ['confirmed'],
@@ -1909,7 +1909,7 @@ async function registerWebMCPTools(api, modelContext, modelContextSource) {
               code: 'EXPLICIT_PURCHASE_CONFIRMATION_REQUIRED',
               message: 'The checkout is waiting for the user to explicitly confirm the final purchase action.'
             },
-            next_step: 'Wait for an explicit "buy now", "buy it", "confirm purchase", "complete purchase", or "do it" confirmation, then call complete_purchase with confirmed=true.'
+            next_step: 'Wait for an explicit reply to the open checkout: "buy now", "buy it", "confirm purchase", "complete purchase", "do it", "confermo", "confermo l\'acquisto", "compra ora", "procedi", or contextual "vai". Then call complete_purchase with confirmed=true.'
           };
         }
         return api.completePurchase?.()
