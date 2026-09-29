@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import worker from './worker-alpha.mjs';
 
 const apiCalls = [];
+const demoSiteCalls = [];
 const assets = {
   fetch: async () => new Response('asset not found', { status: 404 })
 };
@@ -13,7 +14,13 @@ const shopApi = {
     });
   }
 };
-const env = { ASSETS: assets, SHOP_API: shopApi };
+const demoSite = {
+  fetch: async (request) => {
+    demoSiteCalls.push(request);
+    return new Response('{"ok":true}');
+  }
+};
+const env = { ASSETS: assets, SHOP_API: shopApi, DEMO_SITE: demoSite };
 
 for (const path of [
   '/api/lemon-checkout',
@@ -49,35 +56,25 @@ assert.equal(apiCalls[0].headers.has('cookie'), false);
 assert.equal(apiCalls[0].headers.has('authorization'), false);
 assert.match(catalog.headers.get('x-robots-tag') || '', /noindex/);
 
-const originalFetch = globalThis.fetch;
-const fallbackRequests = [];
-globalThis.fetch = async (request) => {
-  fallbackRequests.push(request);
-  return new Response('{"ok":true}');
-};
-try {
-  const curation = await worker.fetch(new Request('https://alpha.sephmartin.com/shop/catalog-curation.json', {
-    headers: {
-      accept: 'application/json',
-      cookie: 'session=must-not-forward',
-      authorization: 'Bearer must-not-forward',
-      origin: 'https://alpha.sephmartin.com'
-    }
-  }), env);
-  assert.equal(curation.status, 200);
-  assert.equal(new URL(fallbackRequests[0].url).hostname, 'demo.sephmartin.com', 'curation must match the live demo data');
-  assert.equal(fallbackRequests[0].headers.get('cookie'), null, 'fallback must not forward cookies');
-  assert.equal(fallbackRequests[0].headers.get('authorization'), null, 'fallback must not forward authorization');
-  assert.equal(fallbackRequests[0].headers.get('origin'), null, 'fallback must not forward the Alpha origin');
-  const bestSellers = await worker.fetch(new Request('https://alpha.sephmartin.com/data/bandcamp-sales-summary.json'), env);
-  assert.equal(bestSellers.status, 200);
-  assert.equal(new URL(fallbackRequests[1].url).hostname, 'sephmartin.com', 'public best-seller summary must use canonical data');
-  const productPage = await worker.fetch(new Request('https://alpha.sephmartin.com/album/second-chance'), env);
-  assert.equal(productPage.status, 404, 'unknown pages must not fall through to live purchase pages');
-  assert.equal(fallbackRequests.length, 2, 'only allowlisted public data may use origin fallbacks');
-} finally {
-  globalThis.fetch = originalFetch;
-}
+const curation = await worker.fetch(new Request('https://alpha.sephmartin.com/shop/catalog-curation.json', {
+  headers: {
+    accept: 'application/json',
+    cookie: 'session=must-not-forward',
+    authorization: 'Bearer must-not-forward',
+    origin: 'https://alpha.sephmartin.com'
+  }
+}), env);
+assert.equal(curation.status, 200);
+assert.equal(new URL(demoSiteCalls[0].url).hostname, 'demo.sephmartin.com', 'curation must match the live demo data');
+assert.equal(demoSiteCalls[0].headers.get('cookie'), null, 'service binding must not forward cookies');
+assert.equal(demoSiteCalls[0].headers.get('authorization'), null, 'service binding must not forward authorization');
+assert.equal(demoSiteCalls[0].headers.get('origin'), null, 'service binding must not forward the Alpha origin');
+const bestSellers = await worker.fetch(new Request('https://alpha.sephmartin.com/data/bandcamp-sales-summary.json'), env);
+assert.equal(bestSellers.status, 200);
+assert.equal(new URL(demoSiteCalls[1].url).hostname, 'demo.sephmartin.com');
+const productPage = await worker.fetch(new Request('https://alpha.sephmartin.com/album/second-chance'), env);
+assert.equal(productPage.status, 404, 'unknown pages must not fall through to live purchase pages');
+assert.equal(demoSiteCalls.length, 2, 'only allowlisted public data may use the demo service binding');
 
 const robots = await worker.fetch(new Request('https://alpha.sephmartin.com/robots.txt'), env);
 assert.equal(robots.status, 200);

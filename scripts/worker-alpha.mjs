@@ -1,5 +1,4 @@
 const DEMO_API_ORIGIN = 'https://demo.sephmartin.com';
-const CANONICAL_SITE_ORIGIN = 'https://sephmartin.com';
 const ROBOTS_POLICY = 'noindex, nofollow, noarchive, nosnippet';
 const CANONICAL_DATA_PATHS = new Set([
   '/shop/catalog-curation.json',
@@ -88,10 +87,7 @@ export default {
       return responseWithAlphaHeaders(new Response('Not found', { status: 404 }));
     }
 
-    const dataOrigin = path === '/shop/catalog-curation.json'
-      ? DEMO_API_ORIGIN
-      : CANONICAL_SITE_ORIGIN;
-    const dataUrl = new URL(incomingUrl.pathname + incomingUrl.search, dataOrigin);
+    const dataUrl = new URL(incomingUrl.pathname + incomingUrl.search, DEMO_API_ORIGIN);
     const dataHeaders = new Headers();
     const accept = request.headers.get('accept');
     if (accept) dataHeaders.set('accept', accept);
@@ -100,6 +96,6 @@ export default {
       headers: dataHeaders,
       redirect: 'follow'
     });
-    return responseWithAlphaHeaders(await fetch(dataRequest));
+    return responseWithAlphaHeaders(await env.DEMO_SITE.fetch(dataRequest));
   }
 };
