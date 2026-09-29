@@ -50,21 +50,31 @@ assert.equal(apiCalls[0].headers.has('authorization'), false);
 assert.match(catalog.headers.get('x-robots-tag') || '', /noindex/);
 
 const originalFetch = globalThis.fetch;
-const fallbackUrls = [];
+const fallbackRequests = [];
 globalThis.fetch = async (request) => {
-  fallbackUrls.push(new URL(request.url));
+  fallbackRequests.push(request);
   return new Response('{"ok":true}');
 };
 try {
-  const curation = await worker.fetch(new Request('https://alpha.sephmartin.com/shop/catalog-curation.json'), env);
+  const curation = await worker.fetch(new Request('https://alpha.sephmartin.com/shop/catalog-curation.json', {
+    headers: {
+      accept: 'application/json',
+      cookie: 'session=must-not-forward',
+      authorization: 'Bearer must-not-forward',
+      origin: 'https://alpha.sephmartin.com'
+    }
+  }), env);
   assert.equal(curation.status, 200);
-  assert.equal(fallbackUrls[0].hostname, 'demo.sephmartin.com', 'curation must match the live demo data');
+  assert.equal(new URL(fallbackRequests[0].url).hostname, 'demo.sephmartin.com', 'curation must match the live demo data');
+  assert.equal(fallbackRequests[0].headers.get('cookie'), null, 'fallback must not forward cookies');
+  assert.equal(fallbackRequests[0].headers.get('authorization'), null, 'fallback must not forward authorization');
+  assert.equal(fallbackRequests[0].headers.get('origin'), null, 'fallback must not forward the Alpha origin');
   const bestSellers = await worker.fetch(new Request('https://alpha.sephmartin.com/data/bandcamp-sales-summary.json'), env);
   assert.equal(bestSellers.status, 200);
-  assert.equal(fallbackUrls[1].hostname, 'sephmartin.com', 'public best-seller summary must use canonical data');
+  assert.equal(new URL(fallbackRequests[1].url).hostname, 'sephmartin.com', 'public best-seller summary must use canonical data');
   const productPage = await worker.fetch(new Request('https://alpha.sephmartin.com/album/second-chance'), env);
   assert.equal(productPage.status, 404, 'unknown pages must not fall through to live purchase pages');
-  assert.equal(fallbackUrls.length, 2, 'only allowlisted public data may use origin fallbacks');
+  assert.equal(fallbackRequests.length, 2, 'only allowlisted public data may use origin fallbacks');
 } finally {
   globalThis.fetch = originalFetch;
 }

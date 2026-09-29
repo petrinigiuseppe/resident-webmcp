@@ -92,6 +92,14 @@ export default {
       ? DEMO_API_ORIGIN
       : CANONICAL_SITE_ORIGIN;
     const dataUrl = new URL(incomingUrl.pathname + incomingUrl.search, dataOrigin);
-    return responseWithAlphaHeaders(await fetch(new Request(dataUrl, request)));
+    const dataHeaders = new Headers();
+    const accept = request.headers.get('accept');
+    if (accept) dataHeaders.set('accept', accept);
+    const dataRequest = new Request(dataUrl, {
+      method: request.method,
+      headers: dataHeaders,
+      redirect: 'follow'
+    });
+    return responseWithAlphaHeaders(await fetch(dataRequest));
   }
 };
