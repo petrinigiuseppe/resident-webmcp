@@ -7,8 +7,9 @@
     "node": ">=18"
   },
   "scripts": {
-    "check:syntax": "node --check crate/crate.js && node --check crate/webmcp.js && node --check crate/song-dna.js && node --check crate/agent-state.js && node --check crate/webmcp-debug.js && node --check scripts/check_live_surface.mjs && node --check scripts/check_webmcp_contract.mjs",
-    "check:live": "node scripts/check_live_surface.mjs https://demo.sephmartin.com",
-    "check:webmcp:contract": "node scripts/check_webmcp_contract.mjs"
+    "check:syntax": "node --check crate/crate.js && node --check crate/webmcp.js && node --check crate/song-dna.js && node --check crate/agent-state.js && node --check crate/webmcp-debug.js && node --check scripts/check_live_surface.mjs && node --check scripts/check_webmcp_contract.mjs && node --check scripts/check_alpha_worker.mjs && node --check scripts/worker-alpha.mjs",
+    "check:live": "node scripts/check_live_surface.mjs https://alpha.sephmartin.com",
+    "check:webmcp:contract": "node scripts/check_webmcp_contract.mjs",
+    "check:alpha-worker": "node scripts/check_alpha_worker.mjs"
   }
 }

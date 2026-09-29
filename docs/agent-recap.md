@@ -6,7 +6,7 @@ WebMCP challenge build.
 ## Identity and surfaces
 
 - Project name: **Resident**.
-- Challenge demo: <https://demo.sephmartin.com/>
+- Alpha preview: <https://alpha.sephmartin.com/> (isolated WebMCP preview; no-payment checkout simulator; live purchase/download actions disabled).
 - Existing artist site: <https://sephmartin.com/>
 - Public source: <https://github.com/petrinigiuseppe/resident-webmcp>
 - Demo video: <https://www.youtube.com/watch?v=Obi3oVdIKSI> (unlisted).
@@ -55,6 +55,6 @@ claiming playback.
 - `npm run check:syntax` checks the public JavaScript source and test scripts.
 - `npm run check:webmcp:contract` checks the controlled local WebMCP flow,
   including the confirmation gate and copyright-safe download boundary.
-- `npm run check:live` checks the deployed demo surface and m77 marker.
+- `npm run check:live` checks the deployed Alpha surface, m77 marker, no-index policy, and blocked live checkout endpoint.
 - The controlled checks do not prove that a native host will discover the
   page or map every natural-language confirmation identically.

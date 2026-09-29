@@ -4,7 +4,7 @@ Resident is an agent-native record crate: the agent searches and
 curates inside the same interface as the human, while its state becomes
 visible, audible and interruptible.
 
-Live demo: <https://demo.sephmartin.com/>
+Live alpha: <https://alpha.sephmartin.com/> (isolated WebMCP preview; checkout is a no-payment simulator and live purchase/download actions are disabled).
 
 ## Why this is WebMCP-native
 
@@ -33,7 +33,7 @@ of this challenge repository.
 
 The repository is a static source package. It contains the page integration,
 WebMCP adapter, catalog fallback, CSS and Three.js runtime needed to inspect
-the interaction. The live beta supplies the current catalog API and the
+the interaction. The live alpha supplies the current catalog API and the
 copyright-bound artwork/audio previews at runtime.
 
 ```sh
@@ -41,7 +41,7 @@ python3 -m http.server 4173
 ```
 
 Then open <http://127.0.0.1:4173/?demo_checkout=1> in a WebMCP-capable browser.
-For judging, use the live beta URL above in ChatGPT's in-app browser or in
+For judging, use the live alpha URL above in ChatGPT's in-app browser or in
 Chrome with WebMCP enabled.
 
 ## WebMCP tools
@@ -76,7 +76,7 @@ npm run check:webmcp:contract
 npm run check:live
 ```
 
-`check:live` is read-only. It verifies the live beta's WebMCP marker, adapter,
+`check:live` is read-only. It verifies the live alpha's WebMCP marker, adapter,
 agent HUD, orb controls, checkout/demo boundary and the absence of the removed
 mobile sound control.
 

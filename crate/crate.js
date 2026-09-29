@@ -1796,9 +1796,11 @@ function isDemoCheckoutSimulatorEnabled() {
   try {
     if (typeof window === 'undefined') return false;
     const hostname = String(window.location.hostname || '').toLowerCase();
-    const isDemoHost = hostname === 'demo.sephmartin.com';
+    const isAlphaHost = hostname === 'alpha.sephmartin.com';
+    const isDemoHost = hostname === 'demo.sephmartin.com' || isAlphaHost;
     const isLocalHost = hostname === '127.0.0.1' || hostname === 'localhost';
     if (!isDemoHost && !isLocalHost) return false;
+    if (isAlphaHost) return true;
 
     const params = new URLSearchParams(window.location.search);
     if (params.get('demo_checkout') === '0') return false;

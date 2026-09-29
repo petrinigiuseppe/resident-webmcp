@@ -1,0 +1,15 @@
+name = "sephmartin-alpha"
+main = "scripts/worker-alpha.mjs"
+compatibility_date = "2026-09-29"
+account_id = "33c80b67edba9d6a0df22e1d28ba5fa2"
+workers_dev = false
+routes = [{ pattern = "alpha.sephmartin.com", custom_domain = true }]
+
+[assets]
+directory = "."
+binding = "ASSETS"
+run_worker_first = true
+
+[[services]]
+binding = "SHOP_API"
+service = "sephmartin-shop-api-staging"

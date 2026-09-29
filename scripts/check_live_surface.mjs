@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const base = (process.argv[2] || 'https://demo.sephmartin.com').replace(/\/$/, '');
+const base = (process.argv[2] || 'https://alpha.sephmartin.com').replace(/\/$/, '');
 const required = [
   'src="/crate/webmcp.js',
   'id="agent-mode-hud"',
@@ -27,6 +27,8 @@ async function get(path) {
 const page = await get('/');
 assert(page.response.ok, `/ returned ${page.response.status}`);
 assert((page.response.headers.get('content-type') || '').includes('text/html'), '/ is not HTML');
+assert((page.response.headers.get('x-robots-tag') || '').includes('noindex'), 'live alpha response is missing X-Robots-Tag noindex');
+assert(page.body.includes('<meta name="robots" content="noindex, nofollow">'), 'live alpha HTML is missing meta robots noindex');
 for (const marker of required) assert(page.body.includes(marker), `missing live marker: ${marker}`);
 assert(page.body.includes('sephmartin.theme.v2'), 'theme preference key is missing');
 assert(!page.body.includes('mobile-agent-sound-toggle'), 'removed mobile sound control is still present');
@@ -46,11 +48,17 @@ assert(adapter.body.includes('PLAYBACK_BLOCKED') && adapter.body.includes('requi
 assert(styles.response.ok, `styles returned ${styles.response.status}`);
 assert(catalog.response.ok, `catalog curation returned ${catalog.response.status}`);
 
+const blockedCheckout = await get('/api/lemon-checkout?slug=alpha-safety-probe');
+assert(blockedCheckout.response.status === 409, `live checkout must be blocked (received ${blockedCheckout.response.status})`);
+assert(blockedCheckout.body.includes('no-payment simulator'), 'blocked checkout response is missing the simulator safety explanation');
+
 console.log(JSON.stringify({
   ok: true,
   base,
   page_status: page.response.status,
   webmcp_status: adapter.response.status,
   styles_status: styles.response.status,
-  catalog_curation_status: catalog.response.status
+  catalog_curation_status: catalog.response.status,
+  x_robots_tag: page.response.headers.get('x-robots-tag'),
+  blocked_checkout_status: blockedCheckout.response.status
 }, null, 2));
