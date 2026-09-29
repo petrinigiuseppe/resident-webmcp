@@ -88,8 +88,10 @@ export default {
       return responseWithAlphaHeaders(new Response('Not found', { status: 404 }));
     }
 
-    const canonicalUrl = new URL(incomingUrl.pathname + incomingUrl.search, CANONICAL_SITE_ORIGIN);
-    const canonicalResponse = await fetch(new Request(canonicalUrl, request));
-    return responseWithAlphaHeaders(canonicalResponse);
+    const dataOrigin = path === '/shop/catalog-curation.json'
+      ? DEMO_API_ORIGIN
+      : CANONICAL_SITE_ORIGIN;
+    const dataUrl = new URL(incomingUrl.pathname + incomingUrl.search, dataOrigin);
+    return responseWithAlphaHeaders(await fetch(new Request(dataUrl, request)));
   }
 };

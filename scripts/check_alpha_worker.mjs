@@ -50,18 +50,21 @@ assert.equal(apiCalls[0].headers.has('authorization'), false);
 assert.match(catalog.headers.get('x-robots-tag') || '', /noindex/);
 
 const originalFetch = globalThis.fetch;
-let canonicalFetchCount = 0;
+const fallbackUrls = [];
 globalThis.fetch = async (request) => {
-  canonicalFetchCount += 1;
-  assert.equal(new URL(request.url).hostname, 'sephmartin.com');
+  fallbackUrls.push(new URL(request.url));
   return new Response('{"ok":true}');
 };
 try {
   const curation = await worker.fetch(new Request('https://alpha.sephmartin.com/shop/catalog-curation.json'), env);
   assert.equal(curation.status, 200);
+  assert.equal(fallbackUrls[0].hostname, 'demo.sephmartin.com', 'curation must match the live demo data');
+  const bestSellers = await worker.fetch(new Request('https://alpha.sephmartin.com/data/bandcamp-sales-summary.json'), env);
+  assert.equal(bestSellers.status, 200);
+  assert.equal(fallbackUrls[1].hostname, 'sephmartin.com', 'public best-seller summary must use canonical data');
   const productPage = await worker.fetch(new Request('https://alpha.sephmartin.com/album/second-chance'), env);
   assert.equal(productPage.status, 404, 'unknown pages must not fall through to live purchase pages');
-  assert.equal(canonicalFetchCount, 1, 'only allowlisted public data may use the canonical fallback');
+  assert.equal(fallbackUrls.length, 2, 'only allowlisted public data may use origin fallbacks');
 } finally {
   globalThis.fetch = originalFetch;
 }
